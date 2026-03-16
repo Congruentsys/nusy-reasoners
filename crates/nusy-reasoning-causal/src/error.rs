@@ -14,8 +14,11 @@ pub enum CausalError {
     )]
     NotIdentifiable { treatment: String, outcome: String },
 
-    #[error("Counterfactual not yet implemented (requires EX-3018 + EX-3019)")]
-    CounterfactualNotImplemented,
+    #[error("Counterfactual not certifiable: {reason}")]
+    CounterfactualNotCertifiable { reason: String },
+
+    #[error("No causal path from {treatment} to {outcome}")]
+    NoCausalPath { treatment: String, outcome: String },
 
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),

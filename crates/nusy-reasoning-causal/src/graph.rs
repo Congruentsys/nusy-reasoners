@@ -253,6 +253,49 @@ impl CausalDag {
             .unwrap_or(false)
     }
 
+    /// Find a directed path from `source` to `target` (BFS, returns first found).
+    ///
+    /// Returns the sequence of node IDs from source to target (inclusive),
+    /// or `None` if no path exists.
+    pub fn find_path(&self, source: &str, target: &str) -> Option<Vec<NodeId>> {
+        if source == target {
+            return Some(vec![source.to_string()]);
+        }
+        if !self.has_node(source) || !self.has_node(target) {
+            return None;
+        }
+
+        let mut queue = VecDeque::new();
+        let mut came_from: HashMap<NodeId, NodeId> = HashMap::new();
+        let sentinel = String::new();
+
+        queue.push_back(source.to_string());
+        came_from.insert(source.to_string(), sentinel.clone());
+
+        while let Some(current) = queue.pop_front() {
+            for (child, _) in self.children_of(&current) {
+                if came_from.contains_key(child) {
+                    continue;
+                }
+                came_from.insert(child.clone(), current.clone());
+                if child == target {
+                    // Reconstruct path
+                    let mut path = vec![target.to_string()];
+                    let mut node = target.to_string();
+                    while came_from[&node] != sentinel {
+                        node = came_from[&node].clone();
+                        path.push(node.clone());
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                queue.push_back(child.clone());
+            }
+        }
+
+        None
+    }
+
     /// Extract the subgraph relevant to a treatment→outcome query.
     ///
     /// Includes: ancestors of treatment, ancestors of outcome, and all
