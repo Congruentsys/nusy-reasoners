@@ -244,13 +244,42 @@ impl CausalDag {
     }
 
     /// Check if there is a directed path from `source` to `target`.
+    ///
+    /// Uses early-termination BFS — stops as soon as `target` is found,
+    /// avoiding the cost of computing the full descendant set.
     pub fn has_path(&self, source: &str, target: &str) -> bool {
         if source == target {
             return true;
         }
-        self.descendants(source)
-            .map(|desc| desc.contains(target))
-            .unwrap_or(false)
+        if !self.has_node(source) || !self.has_node(target) {
+            return false;
+        }
+
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        visited.insert(source.to_string());
+
+        for (child, _) in self.children_of(source) {
+            if child == target {
+                return true;
+            }
+            if visited.insert(child.clone()) {
+                queue.push_back(child);
+            }
+        }
+
+        while let Some(current) = queue.pop_front() {
+            for (child, _) in self.children_of(current) {
+                if child == target {
+                    return true;
+                }
+                if visited.insert(child.clone()) {
+                    queue.push_back(child);
+                }
+            }
+        }
+
+        false
     }
 
     /// Find a directed path from `source` to `target` (BFS, returns first found).
@@ -526,5 +555,151 @@ mod tests {
         assert!(is_causal_predicate("causes"));
         assert!(!is_causal_predicate("related_to"));
         assert!(!is_causal_predicate("tagged_with"));
+    }
+
+    // ── Early termination tests (EX-4069) ──────────────────────────────────────
+
+    /// Build a wide DAG with `n` nodes: one root, `fan` direct children,
+    /// each with a chain of `depth` descendants. Total nodes = 1 + fan × depth.
+    fn wide_dag(fan: usize, depth: usize) -> CausalDag {
+        let mut dag = CausalDag::new();
+        for i in 0..fan {
+            let child = format!("child-{i}");
+            dag.add_edge("root", &child, "blocks");
+            let mut prev = child;
+            for d in 1..depth {
+                let node = format!("child-{i}-depth-{d}");
+                dag.add_edge(&prev, &node, "depends_on");
+                prev = node;
+            }
+        }
+        dag
+    }
+
+    #[test]
+    fn test_has_path_early_termination_positive() {
+        // 500-node DAG: root → 10 children, each with chain of 49 descendants
+        let dag = wide_dag(10, 50);
+        assert_eq!(dag.node_count(), 501);
+
+        // Near target: direct child of root → found immediately
+        assert!(dag.has_path("root", "child-0"));
+
+        // Mid-depth target: should find without full traversal
+        assert!(dag.has_path("root", "child-5-depth-25"));
+
+        // Deepest target
+        assert!(dag.has_path("root", "child-9-depth-49"));
+    }
+
+    #[test]
+    fn test_has_path_early_termination_negative() {
+        let dag = wide_dag(10, 50);
+
+        // No path from leaf to root
+        assert!(!dag.has_path("child-0-depth-49", "root"));
+
+        // No path between sibling branches
+        assert!(!dag.has_path("child-0", "child-1-depth-49"));
+        assert!(!dag.has_path("child-3-depth-10", "child-7-depth-20"));
+
+        // Nonexistent nodes
+        assert!(!dag.has_path("root", "nonexistent"));
+        assert!(!dag.has_path("nonexistent", "root"));
+    }
+
+    #[test]
+    fn test_has_path_correctness_matches_descendants() {
+        // Verify early-termination has_path agrees with descendants() on all pairs.
+        let dag = diamond_dag();
+        let nodes = vec!["A", "B", "C", "D"];
+        for source in &nodes {
+            let desc = dag.descendants(source).unwrap_or_default();
+            for target in &nodes {
+                let expected = *source == *target || desc.contains(*target);
+                assert_eq!(
+                    dag.has_path(source, target),
+                    expected,
+                    "has_path({source}, {target}) mismatch"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_has_path_correctness_on_wide_dag() {
+        let dag = wide_dag(5, 10);
+        let nodes: Vec<String> = dag.nodes.iter().cloned().collect();
+
+        // Sample 50+ pairs and verify has_path matches descendants
+        let mut checked = 0;
+        for source in nodes.iter().take(10) {
+            let desc = dag.descendants(source).unwrap_or_default();
+            for target in nodes.iter().take(10) {
+                let expected = source == target || desc.contains(target);
+                assert_eq!(
+                    dag.has_path(source, target),
+                    expected,
+                    "has_path({source}, {target}) mismatch on wide DAG"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked >= 50,
+            "should check at least 50 pairs, got {checked}"
+        );
+    }
+
+    #[test]
+    fn test_has_path_benchmark_500_node_dag() {
+        use std::time::Instant;
+
+        let dag = wide_dag(10, 50);
+        assert!(dag.node_count() >= 500);
+
+        // Positive queries: root → deep targets
+        let positive_targets = [
+            "child-0-depth-49",
+            "child-5-depth-25",
+            "child-9-depth-1",
+            "child-3",
+        ];
+
+        let start = Instant::now();
+        let iterations = 1000;
+        for _ in 0..iterations {
+            for target in &positive_targets {
+                assert!(dag.has_path("root", target));
+            }
+        }
+        let positive_duration = start.elapsed();
+        let positive_per_query = positive_duration / (iterations * positive_targets.len() as u32);
+
+        // Negative queries: cross-branch
+        let negative_pairs = [
+            ("child-0-depth-49", "child-9-depth-49"),
+            ("child-0", "child-5-depth-25"),
+            ("child-3-depth-10", "child-7-depth-20"),
+        ];
+
+        let start = Instant::now();
+        for _ in 0..iterations {
+            for (s, t) in &negative_pairs {
+                assert!(!dag.has_path(s, t));
+            }
+        }
+        let negative_duration = start.elapsed();
+        let negative_per_query = negative_duration / (iterations * negative_pairs.len() as u32);
+
+        eprintln!(
+            "[EX-4069 Benchmark] 500-node DAG, {iterations} iterations\n\
+             Positive queries: {positive_per_query:?}/query (total {positive_duration:?})\n\
+             Negative queries: {negative_per_query:?}/query (total {negative_duration:?})"
+        );
+
+        // Target: positive queries should be fast (early termination).
+        // We don't assert a hard time limit (CI varies), but the test proves
+        // the benchmark runs and the eprintln shows timing for review.
     }
 }
