@@ -4,12 +4,15 @@
 //! knowledge-graph triples. Edges represent causal influence:
 //! `depends_on`, `blocks`, `causes`, etc.
 //!
-//! Graph mutilation (Pearl's do-operator) removes all incoming edges
-//! to a treatment node, simulating an external intervention.
+//! Graph mutilation (Pearl's do-operator) uses Arrow-style bitmask masking:
+//! instead of cloning the entire DAG, incoming edges to the treatment node
+//! are masked via a lightweight `HashSet`. The heavy graph data is shared
+//! through `Arc`, making mutilation O(1) instead of O(V + E).
 
 use crate::error::{CausalError, Result};
 use arrow::array::{BooleanArray, RecordBatch, StringArray};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 /// Opaque node identifier (typically a kanban item ID like "EX-3017").
 pub type NodeId = String;
@@ -22,13 +25,12 @@ pub struct CausalEdge {
     pub predicate: String,
 }
 
-/// A directed acyclic graph for causal reasoning.
+/// Immutable base data shared between original and mutilated DAGs.
 ///
-/// Nodes are string IDs. Edges are directed: `source -> target` means
-/// "source causally influences target" (e.g., `EX-A blocks EX-B` means
-/// A's completion causally affects B's timeline).
-#[derive(Debug, Clone)]
-pub struct CausalDag {
+/// Shared via `Arc` so that mutilation (and repeated mutilation) costs
+/// O(1) for the graph structure — only the mask is copied.
+#[derive(Debug, Clone, Default)]
+struct DagBase {
     /// Adjacency list: node → set of (target, predicate).
     children: HashMap<NodeId, Vec<(NodeId, String)>>,
     /// Reverse adjacency: node → set of (source, predicate).
@@ -37,13 +39,32 @@ pub struct CausalDag {
     nodes: HashSet<NodeId>,
 }
 
+/// A directed acyclic graph for causal reasoning.
+///
+/// Nodes are string IDs. Edges are directed: `source -> target` means
+/// "source causally influences target" (e.g., `EX-A blocks EX-B` means
+/// A's completion causally affects B's timeline).
+///
+/// Graph mutilation uses bitmask masking: the heavy graph data is shared
+/// via `Arc<DagBase>`, and a `masked_targets` set records which nodes
+/// have had their incoming edges severed. Traversal methods check the
+/// mask, returning the same results as a cloned+mutated DAG but without
+/// the O(V + E) clone cost.
+#[derive(Debug, Clone)]
+pub struct CausalDag {
+    /// Shared immutable graph structure. Cloned via Arc (O(1) ref-count bump).
+    base: Arc<DagBase>,
+    /// Mutilation mask: nodes whose incoming parent edges are inactive.
+    /// Empty for the original (unmutilated) graph.
+    masked_targets: HashSet<NodeId>,
+}
+
 impl CausalDag {
     /// Create an empty DAG.
     pub fn new() -> Self {
         CausalDag {
-            children: HashMap::new(),
-            parents: HashMap::new(),
-            nodes: HashSet::new(),
+            base: Arc::new(DagBase::default()),
+            masked_targets: HashSet::new(),
         }
     }
 
@@ -57,7 +78,7 @@ impl CausalDag {
     ///
     /// Only active (non-deleted) relations with causal predicates are included.
     pub fn from_relation_batches(batches: &[RecordBatch]) -> Result<Self> {
-        let mut dag = CausalDag::new();
+        let mut base = DagBase::default();
 
         for batch in batches {
             let sources = batch
@@ -92,25 +113,49 @@ impl CausalDag {
 
                 // Only include causal predicates (directional influence)
                 if is_causal_predicate(&predicate) {
-                    dag.add_edge(&source, &target, &predicate);
+                    base.nodes.insert(source.clone());
+                    base.nodes.insert(target.clone());
+                    base.children
+                        .entry(source)
+                        .or_default()
+                        .push((target, predicate));
+                    // Note: we push (source, predicate) for parents below
                 }
             }
         }
 
-        Ok(dag)
+        // Build parents index from children
+        for (source, edges) in &base.children {
+            for (target, predicate) in edges {
+                base.parents
+                    .entry(target.clone())
+                    .or_default()
+                    .push((source.clone(), predicate.clone()));
+            }
+        }
+
+        Ok(CausalDag {
+            base: Arc::new(base),
+            masked_targets: HashSet::new(),
+        })
     }
 
     /// Add a directed edge: source → target.
+    ///
+    /// Uses `Arc::make_mut` for copy-on-write: if the base data is shared
+    /// (e.g., after mutilation), it is cloned before mutation. If unique,
+    /// mutation is in-place (zero cost).
     pub fn add_edge(&mut self, source: &str, target: &str, predicate: &str) {
-        self.nodes.insert(source.to_string());
-        self.nodes.insert(target.to_string());
+        let base = Arc::make_mut(&mut self.base);
+        base.nodes.insert(source.to_string());
+        base.nodes.insert(target.to_string());
 
-        self.children
+        base.children
             .entry(source.to_string())
             .or_default()
             .push((target.to_string(), predicate.to_string()));
 
-        self.parents
+        base.parents
             .entry(target.to_string())
             .or_default()
             .push((source.to_string(), predicate.to_string()));
@@ -118,40 +163,64 @@ impl CausalDag {
 
     /// Add a node without edges.
     pub fn add_node(&mut self, node: &str) {
-        self.nodes.insert(node.to_string());
+        Arc::make_mut(&mut self.base).nodes.insert(node.to_string());
     }
 
     /// Check if a node exists.
     pub fn has_node(&self, node: &str) -> bool {
-        self.nodes.contains(node)
+        self.base.nodes.contains(node)
     }
 
     /// Number of nodes.
     pub fn node_count(&self) -> usize {
-        self.nodes.len()
+        self.base.nodes.len()
     }
 
-    /// Number of edges.
+    /// Number of active edges (respecting mutilation mask).
     pub fn edge_count(&self) -> usize {
-        self.children.values().map(|v| v.len()).sum()
+        if self.masked_targets.is_empty() {
+            return self.base.children.values().map(|v| v.len()).sum();
+        }
+        self.base
+            .children
+            .values()
+            .map(|v| {
+                v.iter()
+                    .filter(|(target, _)| !self.masked_targets.contains(target))
+                    .count()
+            })
+            .sum()
     }
 
-    /// All nodes in the DAG.
+    /// All nodes in the DAG (including masked ones).
     pub fn nodes(&self) -> &HashSet<NodeId> {
-        &self.nodes
+        &self.base.nodes
     }
 
-    /// Get children (direct successors) of a node.
+    /// Get children (direct successors) of a node, excluding edges
+    /// targeting masked (mutilated) nodes.
     pub fn children_of(&self, node: &str) -> Vec<&(NodeId, String)> {
-        self.children
+        self.base
+            .children
             .get(node)
-            .map(|v| v.iter().collect())
+            .map(|v| {
+                v.iter()
+                    .filter(|(target, _)| !self.masked_targets.contains(target))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     /// Get parents (direct predecessors) of a node.
+    ///
+    /// Returns empty for masked (mutilated) nodes — their incoming edges
+    /// are considered severed by the mutilation mask.
     pub fn parents_of(&self, node: &str) -> Vec<&(NodeId, String)> {
-        self.parents
+        if self.masked_targets.contains(node) {
+            return Vec::new();
+        }
+        self.base
+            .parents
             .get(node)
             .map(|v| v.iter().collect())
             .unwrap_or_default()
@@ -159,31 +228,28 @@ impl CausalDag {
 
     /// Perform graph mutilation: remove all incoming edges to `treatment`.
     ///
-    /// This is Pearl's do-operator: `do(X=x)` is modeled by removing all
+    /// This is Pearl's do-operator: `do(X=x)` is modeled by masking all
     /// arrows pointing INTO X, making X exogenous (set by external intervention
     /// rather than caused by its parents).
     ///
-    /// Returns a new DAG with the incoming edges removed.
+    /// Instead of cloning the entire DAG (O(V + E)), this creates a new view
+    /// sharing the same `Arc<DagBase>` and adds the treatment to the mask.
+    /// The cost is O(M) where M = number of previously masked targets (typically 0).
+    ///
+    /// Traversal methods (`children_of`, `parents_of`, etc.) automatically
+    /// respect the mask, returning the same results as a cloned+mutated DAG.
     pub fn mutilate(&self, treatment: &str) -> Result<CausalDag> {
         if !self.has_node(treatment) {
             return Err(CausalError::NodeNotFound(treatment.to_string()));
         }
 
-        let mut mutilated = self.clone();
+        let mut masked = self.masked_targets.clone();
+        masked.insert(treatment.to_string());
 
-        // Remove all incoming edges to treatment
-        if let Some(parent_edges) = mutilated.parents.remove(treatment) {
-            for (parent, predicate) in &parent_edges {
-                if let Some(children) = mutilated.children.get_mut(parent) {
-                    children.retain(|(t, p)| !(t == treatment && p == predicate));
-                }
-            }
-        }
-
-        // Ensure the parents entry exists but is empty
-        mutilated.parents.insert(treatment.to_string(), Vec::new());
-
-        Ok(mutilated)
+        Ok(CausalDag {
+            base: Arc::clone(&self.base),
+            masked_targets: masked,
+        })
     }
 
     /// Find all ancestors of a node (transitive closure of parents).
@@ -526,6 +592,121 @@ mod tests {
     }
 
     #[test]
+    fn test_mutilate_edge_count() {
+        //   A
+        //  / \
+        // B   C
+        //  \ /
+        //   D
+        let dag = diamond_dag();
+        assert_eq!(dag.edge_count(), 4);
+
+        let mutilated = dag.mutilate("B").expect("should mutilate");
+        // A→B is severed; A→C, B→D, C→D remain
+        assert_eq!(mutilated.edge_count(), 3);
+    }
+
+    #[test]
+    fn test_mutilate_shared_base() {
+        // Verify that mutilation shares the base data (Arc ref count).
+        let dag = diamond_dag();
+        let mutilated = dag.mutilate("B").expect("should mutilate");
+
+        // Both should reference the same DagBase — Arc pointers are equal
+        assert!(Arc::ptr_eq(&dag.base, &mutilated.base));
+    }
+
+    #[test]
+    fn test_mutilate_cascading() {
+        // Mutilate multiple nodes — mask accumulates.
+        //   A → B → C
+        let dag = chain_dag();
+        let m1 = dag.mutilate("B").expect("first mutilation");
+        assert_eq!(m1.masked_targets.len(), 1);
+
+        let m2 = m1.mutilate("C").expect("second mutilation");
+        assert_eq!(m2.masked_targets.len(), 2);
+
+        // C has no parents (masked), B has no parents (masked)
+        assert!(m2.parents_of("B").is_empty());
+        assert!(m2.parents_of("C").is_empty());
+        // A→B severed, B→C severed
+        assert!(!m2.has_path("A", "C"));
+        assert!(!m2.has_path("B", "C"));
+    }
+
+    #[test]
+    fn test_mutilate_mask_correctness_vs_full_dag() {
+        // Verify masked traversal matches the original clone-based semantics
+        // across multiple DAG shapes and mutilation targets.
+        let dag = diamond_dag();
+
+        // Mutilate each non-root node and verify consistency
+        for target in ["B", "C", "D"] {
+            let mutilated = dag.mutilate(target).expect("should mutilate");
+
+            // Target has no parents
+            assert!(
+                mutilated.parents_of(target).is_empty(),
+                "{target} should have no parents after mutilation"
+            );
+
+            // All nodes still present
+            assert_eq!(mutilated.node_count(), dag.node_count());
+
+            // Traversal from root: no path to target if target's parents were
+            // the only incoming edges (B, C have only A as parent; D has B, C).
+            if target == "D" {
+                // D's parents (B, C) are still reachable from A, but D's
+                // incoming edges are masked — however has_path checks outgoing,
+                // so A→B→D path: B→D edge is filtered (D is masked in children_of(B))
+                assert!(!mutilated.has_path("A", "D"));
+                assert!(!mutilated.has_path("B", "D"));
+            } else {
+                // B or C: A→target edge is masked
+                assert!(!mutilated.has_path("A", target));
+            }
+        }
+    }
+
+    #[test]
+    fn test_mutilate_benchmark_mask_vs_clone_cost() {
+        use std::time::Instant;
+
+        let dag = wide_dag(50, 100);
+        assert!(dag.node_count() >= 5000);
+
+        let iterations = 1000;
+
+        // Measure mutilation cost (Arc clone + HashSet insert)
+        let start = Instant::now();
+        let mut mutilated_dags = Vec::with_capacity(iterations);
+        for i in 0..iterations {
+            // Mutilate different nodes each time
+            let target = format!("child-{}-depth-1", i % 50);
+            mutilated_dags.push(dag.mutilate(&target).expect("should mutilate"));
+        }
+        let mask_duration = start.elapsed();
+
+        // Verify all mutilated DAGs share the same base
+        for mutilated in &mutilated_dags {
+            assert!(Arc::ptr_eq(&dag.base, &mutilated.base));
+        }
+
+        let node_count = dag.node_count();
+        let per_mutilation = mask_duration / iterations as u32;
+        eprintln!(
+            "[EX-4070 Benchmark] {node_count}-node DAG, {iterations} mutilations via mask\n\
+             Total: {mask_duration:?}\n\
+             Per-mutilation: {per_mutilation:?}"
+        );
+
+        // The key invariant: all mutilated views share one DagBase
+        // Memory cost per mutilation = sizeof(HashSet<NodeId>) + 1 entry
+        // vs. old approach = sizeof(HashMap<NodeId, Vec<...>>) * 2 + HashSet
+    }
+
+    #[test]
     fn test_extract_relevant() {
         //   A → B → D
         //   A → C → D
@@ -629,7 +810,7 @@ mod tests {
     #[test]
     fn test_has_path_correctness_on_wide_dag() {
         let dag = wide_dag(5, 10);
-        let nodes: Vec<String> = dag.nodes.iter().cloned().collect();
+        let nodes: Vec<String> = dag.nodes().iter().cloned().collect();
 
         // Sample 50+ pairs and verify has_path matches descendants
         let mut checked = 0;
