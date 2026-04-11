@@ -20,6 +20,16 @@ pub enum CausalError {
     #[error("No causal path from {treatment} to {outcome}")]
     NoCausalPath { treatment: String, outcome: String },
 
+    #[error(
+        "Provenance gate failed for domain '{domain}': \
+         validity {validity:.2} below threshold {threshold:.2}"
+    )]
+    ProvenanceGateFailed {
+        domain: String,
+        validity: f64,
+        threshold: f64,
+    },
+
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
 }
