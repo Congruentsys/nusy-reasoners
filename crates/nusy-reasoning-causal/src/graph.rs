@@ -11,6 +11,7 @@
 
 use crate::error::{CausalError, Result};
 use arrow::array::{BooleanArray, RecordBatch, StringArray};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -23,6 +24,25 @@ pub struct CausalEdge {
     pub source: NodeId,
     pub target: NodeId,
     pub predicate: String,
+}
+
+/// Lazily-built integer index and reachability cache (EX-4071).
+///
+/// `None` means the cache is stale or never built. The cache is rebuilt
+/// on first access after any mutation (add_edge, add_node).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // adj/radj used during build; kept for future COO integration
+struct ReachabilityCache {
+    /// String → integer index mapping.
+    node_to_idx: HashMap<String, usize>,
+    /// Integer index → string mapping.
+    idx_to_node: Vec<String>,
+    /// Adjacency list by index: adj[i] = child indices of node i.
+    adj: Vec<Vec<usize>>,
+    /// Reverse adjacency by index: radj[i] = parent indices of node i.
+    radj: Vec<Vec<usize>>,
+    /// reachable[i] = set of all j where node i can reach node j (transitively).
+    reachable: Vec<HashSet<usize>>,
 }
 
 /// Immutable base data shared between original and mutilated DAGs.
@@ -50,6 +70,9 @@ struct DagBase {
 /// have had their incoming edges severed. Traversal methods check the
 /// mask, returning the same results as a cloned+mutated DAG but without
 /// the O(V + E) clone cost.
+///
+/// Internally maintains a lazily-built reachability cache for O(1)
+/// `has_path` lookups (EX-4071).
 #[derive(Debug, Clone)]
 pub struct CausalDag {
     /// Shared immutable graph structure. Cloned via Arc (O(1) ref-count bump).
@@ -57,6 +80,8 @@ pub struct CausalDag {
     /// Mutilation mask: nodes whose incoming parent edges are inactive.
     /// Empty for the original (unmutilated) graph.
     masked_targets: HashSet<NodeId>,
+    /// Lazily-built integer index + reachability cache (EX-4071).
+    cache: RefCell<Option<ReachabilityCache>>,
 }
 
 impl CausalDag {
@@ -65,6 +90,7 @@ impl CausalDag {
         CausalDag {
             base: Arc::new(DagBase::default()),
             masked_targets: HashSet::new(),
+            cache: RefCell::new(None),
         }
     }
 
@@ -137,6 +163,7 @@ impl CausalDag {
         Ok(CausalDag {
             base: Arc::new(base),
             masked_targets: HashSet::new(),
+            cache: RefCell::new(None),
         })
     }
 
@@ -159,11 +186,14 @@ impl CausalDag {
             .entry(target.to_string())
             .or_default()
             .push((source.to_string(), predicate.to_string()));
+
+        *self.cache.borrow_mut() = None;
     }
 
     /// Add a node without edges.
     pub fn add_node(&mut self, node: &str) {
         Arc::make_mut(&mut self.base).nodes.insert(node.to_string());
+        *self.cache.borrow_mut() = None;
     }
 
     /// Check if a node exists.
@@ -249,6 +279,7 @@ impl CausalDag {
         Ok(CausalDag {
             base: Arc::clone(&self.base),
             masked_targets: masked,
+            cache: RefCell::new(None),
         })
     }
 
@@ -311,41 +342,121 @@ impl CausalDag {
 
     /// Check if there is a directed path from `source` to `target`.
     ///
-    /// Uses early-termination BFS — stops as soon as `target` is found,
-    /// avoiding the cost of computing the full descendant set.
+    /// Uses a lazily-built reachability cache for O(1) lookups after the
+    /// first query (EX-4071). The cache is invalidated whenever edges or
+    /// nodes are added.
     pub fn has_path(&self, source: &str, target: &str) -> bool {
         if source == target {
             return true;
         }
-        if !self.has_node(source) || !self.has_node(target) {
+        self.ensure_cache();
+        let cache = self.cache.borrow();
+        let c = cache.as_ref().expect("cache should be built");
+        let Some(&src_idx) = c.node_to_idx.get(source) else {
             return false;
+        };
+        let Some(&tgt_idx) = c.node_to_idx.get(target) else {
+            return false;
+        };
+        c.reachable[src_idx].contains(&tgt_idx)
+    }
+
+    /// Build the integer node index and reachability cache.
+    ///
+    /// Assigns contiguous `0..n` indices, populates integer adjacency lists,
+    /// then runs BFS from each node to compute transitive reachability.
+    /// Respects the mutilation mask when traversing edges.
+    fn build_cache(&self) -> ReachabilityCache {
+        let n = self.base.nodes.len();
+        let mut node_to_idx = HashMap::with_capacity(n);
+        let mut idx_to_node = Vec::with_capacity(n);
+
+        for node in &self.base.nodes {
+            let idx = idx_to_node.len();
+            node_to_idx.insert(node.clone(), idx);
+            idx_to_node.push(node.clone());
         }
 
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        visited.insert(source.to_string());
+        let mut adj = vec![Vec::new(); n];
+        let mut radj = vec![Vec::new(); n];
 
-        for (child, _) in self.children_of(source) {
-            if child == target {
-                return true;
-            }
-            if visited.insert(child.clone()) {
-                queue.push_back(child);
-            }
-        }
-
-        while let Some(current) = queue.pop_front() {
-            for (child, _) in self.children_of(current) {
-                if child == target {
-                    return true;
+        for (node, children) in &self.base.children {
+            let src = node_to_idx[node];
+            for (child, _pred) in children {
+                if self.masked_targets.contains(child) {
+                    continue;
                 }
-                if visited.insert(child.clone()) {
+                if let Some(&tgt) = node_to_idx.get(child) {
+                    adj[src].push(tgt);
+                    radj[tgt].push(src);
+                }
+            }
+        }
+
+        let mut reachable = vec![HashSet::new(); n];
+        for start in 0..n {
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+
+            for &child in &adj[start] {
+                if visited.insert(child) {
                     queue.push_back(child);
                 }
             }
+
+            while let Some(current) = queue.pop_front() {
+                for &child in &adj[current] {
+                    if visited.insert(child) {
+                        queue.push_back(child);
+                    }
+                }
+            }
+
+            reachable[start] = visited;
         }
 
-        false
+        ReachabilityCache {
+            node_to_idx,
+            idx_to_node,
+            adj,
+            radj,
+            reachable,
+        }
+    }
+
+    /// Ensure the reachability cache is built and valid.
+    fn ensure_cache(&self) {
+        if self.cache.borrow().is_some() {
+            return;
+        }
+        let cache = self.build_cache();
+        *self.cache.borrow_mut() = Some(cache);
+    }
+
+    /// Return the reachability matrix in COO (coordinate) sparse format.
+    ///
+    /// Returns `(n_nodes, row_indices, col_indices)` where each pair
+    /// `(row_indices[k], col_indices[k])` represents a reachable pair
+    /// with implicit value 1.0. Compatible with `CooMatrix` from
+    /// `kg_attention.rs`.
+    ///
+    /// The cache is built lazily if not already valid.
+    pub fn reachability_matrix(&self) -> (usize, Vec<usize>, Vec<usize>) {
+        self.ensure_cache();
+        let cache = self.cache.borrow();
+        let c = cache.as_ref().expect("cache should be built");
+        let n = c.idx_to_node.len();
+        let mut rows = Vec::new();
+        let mut cols = Vec::new();
+
+        for i in 0..n {
+            for &j in &c.reachable[i] {
+                rows.push(i);
+                cols.push(j);
+            }
+        }
+
+        (n, rows, cols)
     }
 
     /// Find a directed path from `source` to `target` (BFS, returns first found).
@@ -882,5 +993,192 @@ mod tests {
         // Target: positive queries should be fast (early termination).
         // We don't assert a hard time limit (CI varies), but the test proves
         // the benchmark runs and the eprintln shows timing for review.
+    }
+
+    // ── EX-4071: Integer Indexing + Reachability Cache Tests ──────────────────
+
+    #[test]
+    fn test_integer_indexing_built() {
+        let dag = diamond_dag();
+        // has_path triggers ensure_cache which builds the index
+        dag.has_path("A", "D");
+
+        let cache = dag.cache.borrow();
+        let c = cache
+            .as_ref()
+            .expect("cache should be built after has_path");
+
+        assert_eq!(c.node_to_idx.len(), 4, "all 4 nodes should be indexed");
+        assert_eq!(c.idx_to_node.len(), 4);
+        // Every node should have a unique index
+        let indices: std::collections::HashSet<usize> = c.node_to_idx.values().copied().collect();
+        assert_eq!(indices.len(), 4, "indices should be unique");
+
+        // Verify bidirectional mapping
+        for node in dag.nodes() {
+            let idx = c.node_to_idx[node];
+            assert_eq!(&c.idx_to_node[idx], node);
+        }
+    }
+
+    #[test]
+    fn test_reachability_cache_correctness() {
+        // Compare cached has_path against descendants() on diamond DAG
+        let dag = diamond_dag();
+
+        let nodes = vec!["A", "B", "C", "D"];
+        for src in &nodes {
+            let desc: HashSet<NodeId> = if dag.has_node(src) {
+                dag.descendants(src).unwrap()
+            } else {
+                HashSet::new()
+            };
+            for tgt in &nodes {
+                let cached = dag.has_path(src, tgt);
+                let via_desc = *src == *tgt || desc.contains(*tgt);
+                assert_eq!(
+                    cached, via_desc,
+                    "has_path({src}, {tgt}) = {cached}, but descendants says {via_desc}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_reachability_cache_wide_dag() {
+        // Build a 500-node DAG: node 0 → 1 → 2 → ... → 499
+        let mut dag = CausalDag::new();
+        for i in 0..499u32 {
+            dag.add_edge(&format!("N{i}"), &format!("N{}", i + 1), "depends_on");
+        }
+        assert_eq!(dag.node_count(), 500);
+
+        // Trigger cache build
+        assert!(dag.has_path("N0", "N499"));
+        assert!(!dag.has_path("N499", "N0"));
+        assert!(dag.has_path("N100", "N200"));
+
+        // Spot-check all edges reachable
+        for i in 0u32..499 {
+            assert!(
+                dag.has_path(&format!("N{i}"), &format!("N{}", i + 1)),
+                "N{i} → N{} should be reachable",
+                i + 1
+            );
+        }
+
+        // Reverse should be false
+        for i in (1..500u32).rev() {
+            assert!(
+                !dag.has_path(&format!("N{i}"), &format!("N{}", i - 1)),
+                "N{i} → N{} should NOT be reachable",
+                i - 1
+            );
+        }
+    }
+
+    #[test]
+    fn test_reachability_cache_invalidated_on_add_edge() {
+        let mut dag = CausalDag::new();
+        dag.add_edge("A", "B", "blocks");
+
+        // Build cache
+        assert!(dag.has_path("A", "B"));
+        assert!(!dag.has_path("A", "C"));
+
+        // Add new edge — cache should be invalidated
+        dag.add_edge("B", "C", "depends_on");
+
+        // has_path should now see A→C via A→B→C
+        assert!(dag.has_path("A", "C"));
+        assert!(dag.has_path("B", "C"));
+        assert!(!dag.has_path("C", "A"));
+    }
+
+    #[test]
+    fn test_reachability_matrix_coo_format() {
+        // Chain: A → B → C
+        let mut dag = CausalDag::new();
+        dag.add_edge("A", "B", "blocks");
+        dag.add_edge("B", "C", "depends_on");
+
+        let (n, rows, cols) = dag.reachability_matrix();
+        assert_eq!(n, 3);
+
+        // Pairs: A→B, A→C, B→C (3 reachable pairs)
+        assert_eq!(rows.len(), 3, "should have 3 reachable pairs");
+
+        // Convert to set of (row, col) for easier checking
+        let pairs: HashSet<(usize, usize)> = rows
+            .iter()
+            .zip(cols.iter())
+            .map(|(&r, &c)| (r, c))
+            .collect();
+
+        // Get indices from the built cache
+        let cache = dag.cache.borrow();
+        let c = cache.as_ref().expect("cache should be built");
+        let a = c.node_to_idx["A"];
+        let b = c.node_to_idx["B"];
+        let c_idx = c.node_to_idx["C"];
+
+        assert!(pairs.contains(&(a, b)), "A→B should be in COO");
+        assert!(
+            pairs.contains(&(a, c_idx)),
+            "A→C should be in COO (transitive)"
+        );
+        assert!(pairs.contains(&(b, c_idx)), "B→C should be in COO");
+        assert!(!pairs.contains(&(c_idx, a)), "C→A should NOT be in COO");
+        assert!(!pairs.contains(&(b, a)), "B→A should NOT be in COO");
+    }
+
+    #[test]
+    fn test_has_path_o1_performance() {
+        // Build a wide-ish DAG: 500 nodes, each node i connects to i+1 and i+2
+        let mut dag = CausalDag::new();
+        for i in 0..498u32 {
+            dag.add_edge(&format!("N{i}"), &format!("N{}", i + 1), "blocks");
+            dag.add_edge(&format!("N{i}"), &format!("N{}", i + 2), "blocks");
+        }
+        // Add the last edge
+        dag.add_edge("N498", "N499", "blocks");
+
+        assert_eq!(dag.node_count(), 500);
+
+        // First has_path call builds the cache (amortized cost)
+        assert!(dag.has_path("N0", "N499"));
+
+        // Subsequent 10,000 lookups should be O(1) — just hash set lookups
+        let start = std::time::Instant::now();
+        for _ in 0..10_000 {
+            assert!(dag.has_path("N0", "N499"));
+            assert!(!dag.has_path("N499", "N0"));
+            assert!(dag.has_path("N250", "N499"));
+        }
+        let elapsed = start.elapsed();
+        // 30,000 cached lookups should complete in well under 1 second
+        assert!(
+            elapsed.as_millis() < 1000,
+            "30,000 cached lookups took {elapsed:?} — should be < 1s"
+        );
+    }
+
+    #[test]
+    fn test_reachability_cache_respects_mutilation_mask() {
+        // Build: A → B → C → D
+        let dag = chain_dag();
+
+        // Without mutilation: A can reach everything
+        assert!(dag.has_path("A", "D"));
+        assert!(dag.has_path("A", "C"));
+
+        // Mutilate B: A→B severed
+        let mutilated = dag.mutilate("B").expect("mutilate");
+
+        // Mutilated DAG has its own cache (starts empty)
+        assert!(!mutilated.has_path("A", "B"));
+        assert!(!mutilated.has_path("A", "D"));
+        // B→C→D still works
+        assert!(mutilated.has_path("B", "D"));
     }
 }
