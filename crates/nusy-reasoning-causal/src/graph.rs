@@ -559,21 +559,51 @@ impl Default for CausalDag {
 ///
 /// Causal predicates imply that the source *causes* or *influences* the target.
 /// Non-causal predicates (e.g., `related_to`) are bidirectional associations.
+///
+/// The accepted set spans:
+/// - Project / kanban edges: `depends_on`, `blocks`, `implements`, `spawns`
+/// - Generic causal: `causes`, `caused_by`, `derived_from`
+/// - Research provenance: `hyp:measuredBy`, `expr:hypothesis`, `expr:run_for`,
+///   `paper:cites`, `lit:references`
+/// - Formal-reasoning (CH-4433): `proves`, `is_proved_by`, `axiom_of`,
+///   `follows_from`, `entails`, `derives`, `precedes_in_proof`,
+///   `concludes_proof`, `is_definition_of`, `defines`
+///
+/// L1 arithmetic predicates (`equals`, `sum_of`, `divides`, `is_prime`, etc.)
+/// are intentionally REJECTED — they encode mathematical fact, not causal
+/// influence. Phase 6's plate refiner walks inferential L2 edges (proves /
+/// entails / derives), not arithmetic content edges. See
+/// `research/audits/predicate-math-audit.md` §3 for the Pearl-classification
+/// rationale.
 fn is_causal_predicate(predicate: &str) -> bool {
     matches!(
         predicate,
+        // Project / kanban edges
         "depends_on"
             | "blocks"
             | "implements"
             | "spawns"
+            // Generic causal
             | "causes"
             | "derived_from"
             | "caused_by"
+            // Research provenance
             | "hyp:measuredBy"
             | "expr:hypothesis"
             | "expr:run_for"
             | "paper:cites"
             | "lit:references"
+            // Formal reasoning (CH-4433 — VY-4412 Phase 6 prerequisite)
+            | "proves"
+            | "is_proved_by"
+            | "axiom_of"
+            | "follows_from"
+            | "entails"
+            | "derives"
+            | "precedes_in_proof"
+            | "concludes_proof"
+            | "is_definition_of"
+            | "defines"
     )
 }
 
@@ -841,12 +871,65 @@ mod tests {
 
     #[test]
     fn test_is_causal_predicate() {
+        // Project / kanban edges
         assert!(is_causal_predicate("depends_on"));
         assert!(is_causal_predicate("blocks"));
         assert!(is_causal_predicate("implements"));
+        assert!(is_causal_predicate("spawns"));
+        // Generic causal
         assert!(is_causal_predicate("causes"));
+        assert!(is_causal_predicate("caused_by"));
+        assert!(is_causal_predicate("derived_from"));
+        // Research provenance
+        assert!(is_causal_predicate("hyp:measuredBy"));
+        assert!(is_causal_predicate("expr:hypothesis"));
+        assert!(is_causal_predicate("expr:run_for"));
+        assert!(is_causal_predicate("paper:cites"));
+        assert!(is_causal_predicate("lit:references"));
+        // Non-causal observational
         assert!(!is_causal_predicate("related_to"));
         assert!(!is_causal_predicate("tagged_with"));
+    }
+
+    #[test]
+    fn test_is_causal_predicate_formal_reasoning() {
+        // CH-4433 — L2 formal-reasoning predicates ARE inferentially
+        // directional. Phase 6's plate refiner walks chains via these.
+        assert!(is_causal_predicate("proves"));
+        assert!(is_causal_predicate("is_proved_by"));
+        assert!(is_causal_predicate("axiom_of"));
+        assert!(is_causal_predicate("follows_from"));
+        assert!(is_causal_predicate("entails"));
+        assert!(is_causal_predicate("derives"));
+        assert!(is_causal_predicate("precedes_in_proof"));
+        assert!(is_causal_predicate("concludes_proof"));
+        assert!(is_causal_predicate("is_definition_of"));
+        assert!(is_causal_predicate("defines"));
+    }
+
+    #[test]
+    fn test_is_causal_predicate_rejects_l1_math() {
+        // CH-4433 — L1 arithmetic predicates encode mathematical fact, not
+        // causal influence. They MUST stay rejected so that CausalDag walks
+        // do not traverse arithmetic content edges as if they were causal.
+        // See research/audits/predicate-math-audit.md §3.
+        assert!(!is_causal_predicate("equals"));
+        assert!(!is_causal_predicate("equal_to"));
+        assert!(!is_causal_predicate("sum_of"));
+        assert!(!is_causal_predicate("product_of"));
+        assert!(!is_causal_predicate("difference_of"));
+        assert!(!is_causal_predicate("quotient_of"));
+        assert!(!is_causal_predicate("divides"));
+        assert!(!is_causal_predicate("divisible_by"));
+        assert!(!is_causal_predicate("is_prime"));
+        assert!(!is_causal_predicate("is_composite"));
+        assert!(!is_causal_predicate("is_even"));
+        assert!(!is_causal_predicate("is_odd"));
+        assert!(!is_causal_predicate("greater_than"));
+        assert!(!is_causal_predicate("less_than"));
+        assert!(!is_causal_predicate("coefficient_of"));
+        assert!(!is_causal_predicate("term_of"));
+        assert!(!is_causal_predicate("expression_of"));
     }
 
     // ── Early termination tests (EX-4069) ──────────────────────────────────────
