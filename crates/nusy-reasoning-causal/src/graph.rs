@@ -932,6 +932,53 @@ mod tests {
         assert!(!is_causal_predicate("expression_of"));
     }
 
+    #[test]
+    fn test_is_causal_predicate_rejects_l0_narrative() {
+        // CH-4440 — L0 narrative predicates describe story content, not
+        // causal influence. They MUST stay rejected from CausalDag walks
+        // (per CH-4433 precedent: observational predicates would pollute
+        // Phase 6's causal-chain walker).
+        // See research/audits/predicate-l0-narrative-audit.md.
+
+        // Spatial/locative
+        assert!(!is_causal_predicate("lives_in"));
+        assert!(!is_causal_predicate("habitat"));
+        assert!(!is_causal_predicate("located_in"));
+        assert!(!is_causal_predicate("located_at"));
+        // Presence
+        assert!(!is_causal_predicate("appears_in"));
+        assert!(!is_causal_predicate("stationed_at"));
+        assert!(!is_causal_predicate("active_at"));
+        // Functional/role
+        assert!(!is_causal_predicate("used_for"));
+        assert!(!is_causal_predicate("used_by"));
+        assert!(!is_causal_predicate("serves_as"));
+        assert!(!is_causal_predicate("functions_as"));
+        // Definitional/linguistic
+        assert!(!is_causal_predicate("means"));
+        assert!(!is_causal_predicate("stands_for"));
+        assert!(!is_causal_predicate("synonym_of"));
+        assert!(!is_causal_predicate("translates_to"));
+        assert!(!is_causal_predicate("pronounced_as"));
+        assert!(!is_causal_predicate("named_after"));
+        // Symbolic/narrative
+        assert!(!is_causal_predicate("symbolizes"));
+        assert!(!is_causal_predicate("represents"));
+        assert!(!is_causal_predicate("depicts"));
+        assert!(!is_causal_predicate("illustrates"));
+        assert!(!is_causal_predicate("narrates_about"));
+        assert!(!is_causal_predicate("companion_of"));
+        // Attribution
+        assert!(!is_causal_predicate("has_property"));
+        assert!(!is_causal_predicate("displays"));
+        assert!(!is_causal_predicate("makes_sound"));
+        // Action-role
+        assert!(!is_causal_predicate("hunts_with"));
+        assert!(!is_causal_predicate("shoots"));
+        assert!(!is_causal_predicate("tethered_by"));
+        assert!(!is_causal_predicate("lifted_by"));
+    }
+
     // ── Early termination tests (EX-4069) ──────────────────────────────────────
 
     /// Build a wide DAG with `n` nodes: one root, `fan` direct children,
