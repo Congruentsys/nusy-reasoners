@@ -23,6 +23,7 @@
 //! Non-critical queries use the fast path (CAC or symbolic pipeline).
 
 pub mod adjustment;
+pub mod clinical_gate;
 pub mod counterfactual;
 pub mod error;
 pub mod graph;
@@ -31,6 +32,9 @@ pub mod intervention;
 pub mod safety_routing;
 
 pub use adjustment::{AdjustmentResult, AdjustmentSet};
+pub use clinical_gate::{
+    ClinicalCausalGate, ClinicalGateSummary, ClinicalGateVerdict, ClinicalRefusalReason,
+};
 pub use counterfactual::{ConfidenceLevel, CounterfactualResult};
 pub use error::{CausalError, Result};
 pub use graph::{CausalDag, CausalEdge, NodeId};
