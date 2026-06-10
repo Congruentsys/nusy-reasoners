@@ -51,6 +51,9 @@ use std::collections::HashSet;
 
 use nusy_unify::{Rule, Triple, match_conjunction};
 
+pub mod proof;
+pub use proof::ProofTree;
+
 /// A rule tagged with a stable identifier, so each derived fact can name the rule
 /// that produced it. The identifier flows into [`Derivation::rule_id`].
 #[derive(Debug, Clone, PartialEq, Eq)]
