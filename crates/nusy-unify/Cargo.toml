@@ -1,0 +1,11 @@
+[package]
+name = "nusy-unify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Unification + variable binding for rule-LHS matching over Y-graph triples (VOY-V18-1)"
+
+[dependencies]
+# Self-contained: unification is pure term algebra. No workspace deps — the
+# forward-chaining engine (EX-4588) consumes this crate, not the reverse.
