@@ -1,0 +1,12 @@
+[package]
+name = "nusy-cpg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "One real clinical practice guideline (JNC8 hypertension) imported into computable PlanDefinition form (VOY-V18-2, EX-4599)"
+
+[dependencies]
+# The CPG is a PlanDefinition (EX-4597) whose conditions are CQL-analog (EX-4596).
+nusy-plandef = { path = "../nusy-plandef" }
+nusy-cql = { path = "../nusy-cql" }

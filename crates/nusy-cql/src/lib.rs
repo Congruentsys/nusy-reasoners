@@ -209,6 +209,41 @@ mod tests {
     }
 
     #[test]
+    fn value_set_membership_multivalued_existential() {
+        // A multi-valued property (patient with several Condition codes): `in valueset` is
+        // existential — true if ANY code is a member.
+        let mut s = MapStore::default().with_prop(
+            "Condition.code",
+            vec![
+                Value::Code(Code::new("SNOMED", "111")),
+                Value::Code(Code::new("SNOMED", "38341003")),
+            ],
+        );
+        s.value_sets
+            .insert(("38341003".to_string(), "Hypertension".to_string()), true);
+        s.value_sets
+            .insert(("111".to_string(), "Hypertension".to_string()), false);
+        assert_eq!(
+            b(evaluate("Condition.code in \"Hypertension\"", &s).unwrap()),
+            Some(true)
+        );
+        // None match, all known → false.
+        s.value_sets
+            .insert(("38341003".to_string(), "Diabetes".to_string()), false);
+        s.value_sets
+            .insert(("111".to_string(), "Diabetes".to_string()), false);
+        assert_eq!(
+            b(evaluate("Condition.code in \"Diabetes\"", &s).unwrap()),
+            Some(false)
+        );
+        // None match but a membership is unknown → Null.
+        assert!(matches!(
+            evaluate("Condition.code in \"Unknown\"", &s).unwrap(),
+            Value::Null
+        ));
+    }
+
+    #[test]
     fn list_membership() {
         let s = MapStore::default();
         assert_eq!(b(evaluate("2 in (1, 2, 3)", &s).unwrap()), Some(true));

@@ -81,14 +81,7 @@ pub fn eval(expr: &Expr, store: &dyn FactStore) -> Result<Value, EvalError> {
 
         Expr::InValueSet { value, valueset } => {
             let v = eval(value, store)?;
-            match v {
-                Value::Null => Ok(Value::Null),
-                Value::Code(c) => Ok(from_truth(store.in_value_set(&c, valueset))),
-                other => Err(EvalError::TypeError {
-                    op: "in (value set)".to_string(),
-                    detail: format!("expected a Code on the left, got {}", type_name(&other)),
-                }),
-            }
+            in_value_set(&v, valueset, store)
         }
 
         Expr::InList { value, list } => {
@@ -264,6 +257,42 @@ fn in_list(v: &Value, list: &Value) -> Result<Value, EvalError> {
     } else {
         Value::Boolean(false)
     })
+}
+
+/// Value-set membership with Kleene semantics. A single [`Value::Code`] tests directly; a
+/// [`Value::List`] (a multi-valued property, e.g. a patient with several `Condition.code`s)
+/// is **existential** — true if any element is a member, `Null` (unknown) if none match but a
+/// code's membership is undecidable, else false. This is what FHIR-CPG guideline conditions
+/// like `Condition.code in "Hypertension"` mean over a patient with multiple conditions.
+fn in_value_set(v: &Value, valueset: &str, store: &dyn FactStore) -> Result<Value, EvalError> {
+    match v {
+        Value::Null => Ok(Value::Null),
+        Value::Code(c) => Ok(from_truth(store.in_value_set(c, valueset))),
+        Value::List(items) => {
+            let mut saw_unknown = false;
+            for item in items {
+                match item {
+                    Value::Code(c) => match store.in_value_set(c, valueset) {
+                        Some(true) => return Ok(Value::Boolean(true)),
+                        None => saw_unknown = true,
+                        Some(false) => {}
+                    },
+                    Value::Null => saw_unknown = true,
+                    other => {
+                        return Err(EvalError::TypeError {
+                            op: "in (value set)".to_string(),
+                            detail: format!("list element must be a Code, got {}", type_name(other)),
+                        });
+                    }
+                }
+            }
+            Ok(if saw_unknown { Value::Null } else { Value::Boolean(false) })
+        }
+        other => Err(EvalError::TypeError {
+            op: "in (value set)".to_string(),
+            detail: format!("expected a Code or list of Codes on the left, got {}", type_name(other)),
+        }),
+    }
 }
 
 fn temporal(op: TemporalOp, l: &Value, r: &Value) -> Result<Value, EvalError> {
