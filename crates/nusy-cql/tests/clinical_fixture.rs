@@ -5,7 +5,7 @@
 //! threshold, a value-set condition match, a subsumption check) evaluated over
 //! patient facts — without any dependency on the (still-landing) engine substrate.
 
-use nusy_cql::{evaluate, parse, eval, Code, FactStore, Value};
+use nusy_cql::{Code, FactStore, Value, eval, evaluate, parse};
 use std::collections::HashMap;
 
 struct Patient {
@@ -17,13 +17,20 @@ struct Patient {
 
 impl Patient {
     fn key(entity: &str, path: &[String]) -> String {
-        if path.is_empty() { entity.to_string() } else { format!("{entity}.{}", path.join(".")) }
+        if path.is_empty() {
+            entity.to_string()
+        } else {
+            format!("{entity}.{}", path.join("."))
+        }
     }
 }
 
 impl FactStore for Patient {
     fn get_property(&self, entity: &str, path: &[String]) -> Vec<Value> {
-        self.props.get(&Self::key(entity, path)).cloned().unwrap_or_default()
+        self.props
+            .get(&Self::key(entity, path))
+            .cloned()
+            .unwrap_or_default()
     }
     fn in_value_set(&self, code: &Code, valueset: &str) -> Option<bool> {
         match valueset {
@@ -32,7 +39,11 @@ impl FactStore for Patient {
         }
     }
     fn subsumes(&self, ancestor: &Code, descendant: &Code) -> Option<bool> {
-        Some(self.isa.iter().any(|(a, d)| *a == ancestor.code && *d == descendant.code))
+        Some(
+            self.isa
+                .iter()
+                .any(|(a, d)| *a == ancestor.code && *d == descendant.code),
+        )
     }
 }
 
@@ -47,7 +58,10 @@ fn elderly_hypertensive_with_normal_kidney() -> Patient {
     let mut props = HashMap::new();
     props.insert("Patient.age".to_string(), vec![Value::Integer(72)]);
     props.insert("Observation.eGFR".to_string(), vec![Value::Decimal(58.0)]);
-    props.insert("Condition.code".to_string(), vec![Value::Code(Code::new("SNOMED", "38341003"))]);
+    props.insert(
+        "Condition.code".to_string(),
+        vec![Value::Code(Code::new("SNOMED", "38341003"))],
+    );
     Patient {
         props,
         hypertension_codes: vec!["38341003".to_string()],
@@ -59,14 +73,16 @@ fn elderly_hypertensive_with_normal_kidney() -> Patient {
 fn guideline_recommendation_fires() {
     let p = elderly_hypertensive_with_normal_kidney();
     // Recommend antihypertensive review: age >= 65 AND hypertensive AND eGFR not critically low.
-    let rule = "Patient.age >= 65 and Condition.code in \"Hypertension\" and Observation.eGFR >= 30";
+    let rule =
+        "Patient.age >= 65 and Condition.code in \"Hypertension\" and Observation.eGFR >= 30";
     assert_eq!(truth(evaluate(rule, &p).unwrap()), Some(true));
 }
 
 #[test]
 fn contraindication_blocks_when_egfr_low() {
     let mut p = elderly_hypertensive_with_normal_kidney();
-    p.props.insert("Observation.eGFR".to_string(), vec![Value::Decimal(18.0)]);
+    p.props
+        .insert("Observation.eGFR".to_string(), vec![Value::Decimal(18.0)]);
     // doNotPerform-style: eGFR < 30 must contraindicate.
     let contra = "Observation.eGFR < 30";
     assert_eq!(truth(evaluate(contra, &p).unwrap()), Some(true));
@@ -101,6 +117,10 @@ fn parse_once_eval_many() {
 
     let mut young_props = HashMap::new();
     young_props.insert("Patient.age".to_string(), vec![Value::Integer(30)]);
-    let young = Patient { props: young_props, hypertension_codes: vec![], isa: vec![] };
+    let young = Patient {
+        props: young_props,
+        hypertension_codes: vec![],
+        isa: vec![],
+    };
     assert_eq!(truth(eval(&ast, &young).unwrap()), Some(false));
 }

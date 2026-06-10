@@ -20,7 +20,10 @@ pub struct Code {
 impl Code {
     /// Construct a code from a system and a code string.
     pub fn new(system: impl Into<String>, code: impl Into<String>) -> Self {
-        Self { system: system.into(), code: code.into() }
+        Self {
+            system: system.into(),
+            code: code.into(),
+        }
     }
 }
 

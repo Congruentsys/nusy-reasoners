@@ -18,7 +18,7 @@
 
 use crate::ast::{Code, CompOp, Expr, TemporalOp, Value};
 use crate::error::ParseError;
-use crate::lexer::{lex, Token};
+use crate::lexer::{Token, lex};
 
 /// Parse a source string into an [`Expr`].
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
@@ -62,7 +62,9 @@ impl Parser {
                 found: format!("{t:?}"),
                 expected: format!("{want:?} ({ctx})"),
             }),
-            None => Err(ParseError::UnexpectedEof { expected: format!("{want:?} ({ctx})") }),
+            None => Err(ParseError::UnexpectedEof {
+                expected: format!("{want:?} ({ctx})"),
+            }),
         }
     }
 
@@ -109,13 +111,20 @@ impl Parser {
         if let Some(op) = op {
             self.pos += 1;
             let rhs = self.parse_primary()?;
-            return Ok(Expr::Compare { op, lhs: Box::new(lhs), rhs: Box::new(rhs) });
+            return Ok(Expr::Compare {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            });
         }
         match self.peek() {
             Some(Token::Subsumes) => {
                 self.pos += 1;
                 let rhs = self.parse_primary()?;
-                Ok(Expr::Subsumes { ancestor: Box::new(lhs), descendant: Box::new(rhs) })
+                Ok(Expr::Subsumes {
+                    ancestor: Box::new(lhs),
+                    descendant: Box::new(rhs),
+                })
             }
             Some(Token::Before) => self.temporal(lhs, TemporalOp::Before),
             Some(Token::After) => self.temporal(lhs, TemporalOp::After),
@@ -127,15 +136,22 @@ impl Parser {
                     Some(Token::Str(name)) => {
                         let name = name.clone();
                         self.pos += 1;
-                        Ok(Expr::InValueSet { value: Box::new(lhs), valueset: name })
+                        Ok(Expr::InValueSet {
+                            value: Box::new(lhs),
+                            valueset: name,
+                        })
                     }
                     Some(Token::LParen) => {
                         let list = self.parse_primary()?;
-                        Ok(Expr::InList { value: Box::new(lhs), list: Box::new(list) })
+                        Ok(Expr::InList {
+                            value: Box::new(lhs),
+                            list: Box::new(list),
+                        })
                     }
                     Some(t) => Err(ParseError::UnexpectedToken {
                         found: format!("{t:?}"),
-                        expected: "a value-set name (string) or a list literal after `in`".to_string(),
+                        expected: "a value-set name (string) or a list literal after `in`"
+                            .to_string(),
                     }),
                     None => Err(ParseError::UnexpectedEof {
                         expected: "a value-set name or list after `in`".to_string(),
@@ -149,7 +165,11 @@ impl Parser {
     fn temporal(&mut self, lhs: Expr, op: TemporalOp) -> Result<Expr, ParseError> {
         self.pos += 1;
         let rhs = self.parse_primary()?;
-        Ok(Expr::Temporal { op, lhs: Box::new(lhs), rhs: Box::new(rhs) })
+        Ok(Expr::Temporal {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
@@ -231,7 +251,9 @@ impl Parser {
                 found: format!("{t:?}"),
                 expected: "a literal, property, constructor, `exists`, or `(`".to_string(),
             }),
-            None => Err(ParseError::UnexpectedEof { expected: "an expression".to_string() }),
+            None => Err(ParseError::UnexpectedEof {
+                expected: "an expression".to_string(),
+            }),
         }
     }
 

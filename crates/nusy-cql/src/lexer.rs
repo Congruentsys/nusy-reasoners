@@ -113,7 +113,10 @@ pub fn lex(input: &str) -> Result<Vec<Token>, ParseError> {
                     tokens.push(Token::Ne);
                     i += 2;
                 } else {
-                    return Err(ParseError::UnexpectedChar { ch: '!', pos: byte_offsets[i] });
+                    return Err(ParseError::UnexpectedChar {
+                        ch: '!',
+                        pos: byte_offsets[i],
+                    });
                 }
             }
             '<' => {
@@ -174,7 +177,10 @@ pub fn lex(input: &str) -> Result<Vec<Token>, ParseError> {
                     let ch = chars[i];
                     if ch.is_ascii_digit() {
                         i += 1;
-                    } else if ch == '.' && !seen_dot && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
+                    } else if ch == '.'
+                        && !seen_dot
+                        && chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())
+                    {
                         seen_dot = true;
                         i += 1;
                     } else {
@@ -184,12 +190,18 @@ pub fn lex(input: &str) -> Result<Vec<Token>, ParseError> {
                 let literal: String = chars[start..i].iter().collect();
                 if seen_dot {
                     let v: f64 = literal.parse().map_err(|e: std::num::ParseFloatError| {
-                        ParseError::InvalidNumber { literal: literal.clone(), reason: e.to_string() }
+                        ParseError::InvalidNumber {
+                            literal: literal.clone(),
+                            reason: e.to_string(),
+                        }
                     })?;
                     tokens.push(Token::Decimal(v));
                 } else {
                     let v: i64 = literal.parse().map_err(|e: std::num::ParseIntError| {
-                        ParseError::InvalidNumber { literal: literal.clone(), reason: e.to_string() }
+                        ParseError::InvalidNumber {
+                            literal: literal.clone(),
+                            reason: e.to_string(),
+                        }
                     })?;
                     tokens.push(Token::Int(v));
                 }
@@ -224,7 +236,10 @@ pub fn lex(input: &str) -> Result<Vec<Token>, ParseError> {
                 tokens.push(token);
             }
             other => {
-                return Err(ParseError::UnexpectedChar { ch: other, pos: byte_offsets[i] });
+                return Err(ParseError::UnexpectedChar {
+                    ch: other,
+                    pos: byte_offsets[i],
+                });
             }
         }
     }

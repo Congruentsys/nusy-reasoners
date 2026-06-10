@@ -97,15 +97,24 @@ pub fn eval(expr: &Expr, store: &dyn FactStore) -> Result<Value, EvalError> {
             in_list(&v, &l)
         }
 
-        Expr::Subsumes { ancestor, descendant } => {
+        Expr::Subsumes {
+            ancestor,
+            descendant,
+        } => {
             let a = eval(ancestor, store)?;
             let d = eval(descendant, store)?;
             match (a, d) {
                 (Value::Null, _) | (_, Value::Null) => Ok(Value::Null),
-                (Value::Code(anc), Value::Code(desc)) => Ok(from_truth(store.subsumes(&anc, &desc))),
+                (Value::Code(anc), Value::Code(desc)) => {
+                    Ok(from_truth(store.subsumes(&anc, &desc)))
+                }
                 (a, d) => Err(EvalError::TypeError {
                     op: "subsumes".to_string(),
-                    detail: format!("expected Code subsumes Code, got {} subsumes {}", type_name(&a), type_name(&d)),
+                    detail: format!(
+                        "expected Code subsumes Code, got {} subsumes {}",
+                        type_name(&a),
+                        type_name(&d)
+                    ),
                 }),
             }
         }
@@ -184,7 +193,9 @@ fn value_eq(a: &Value, b: &Value) -> Option<bool> {
         (Value::Boolean(x), Value::Boolean(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::Code(x), Value::Code(y)) => x == y,
-        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => xu == yu && (xv - yv).abs() < f64::EPSILON,
+        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
+            xu == yu && (xv - yv).abs() < f64::EPSILON
+        }
         (Value::List(xs), Value::List(ys)) => {
             xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| value_eq(x, y) == Some(true))
         }
@@ -248,7 +259,11 @@ fn in_list(v: &Value, list: &Value) -> Result<Value, EvalError> {
         }
     }
     // Not found: unknown if any element was null (membership undecidable), else false.
-    Ok(if saw_unknown { Value::Null } else { Value::Boolean(false) })
+    Ok(if saw_unknown {
+        Value::Null
+    } else {
+        Value::Boolean(false)
+    })
 }
 
 fn temporal(op: TemporalOp, l: &Value, r: &Value) -> Result<Value, EvalError> {
@@ -258,7 +273,11 @@ fn temporal(op: TemporalOp, l: &Value, r: &Value) -> Result<Value, EvalError> {
     let (Some((llo, lhi)), Some((rlo, rhi))) = (l.as_interval(), r.as_interval()) else {
         return Err(EvalError::TypeError {
             op: format!("{op:?}"),
-            detail: format!("temporal operators require points/intervals, got {} and {}", type_name(l), type_name(r)),
+            detail: format!(
+                "temporal operators require points/intervals, got {} and {}",
+                type_name(l),
+                type_name(r)
+            ),
         });
     };
     let res = match op {
