@@ -77,7 +77,7 @@ impl Action {
 
 /// One node of the decision graph: an optional applicability condition, an optional
 /// recommended action, and optional grouped sub-actions (which inherit applicability).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanAction {
     /// CQL-analog applicability condition source; `None` = always applicable.
     pub condition: Option<String>,
@@ -120,7 +120,7 @@ impl PlanAction {
 }
 
 /// A computable guideline: a named tree of [`PlanAction`]s.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanDefinition {
     /// Stable guideline identifier.
     pub id: String,

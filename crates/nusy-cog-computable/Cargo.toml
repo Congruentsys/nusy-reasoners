@@ -1,0 +1,14 @@
+[package]
+name = "nusy-cog-computable"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "COG transfer of computable Y2 artifacts: reify rules / decision-graphs / value-sets to transferable Y2 triples and back (VOY-V18-4, EX-4607)"
+
+[dependencies]
+# The computable Y2 artifacts a schooled being must carry between levels/beings.
+nusy-unify = { path = "../nusy-unify" }     # Rule / TriplePattern / Term / Triple
+nusy-plandef = { path = "../nusy-plandef" } # PlanDefinition decision graphs
+nusy-cql = { path = "../nusy-cql" }          # Code (terminology)
+thiserror = { workspace = true }
