@@ -1,0 +1,12 @@
+[package]
+name = "nusy-forward-chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Forward-chaining inference engine: iterate Y2 rules over Y1 triples to a fixpoint, with per-fact derivation provenance (VOY-V18-1, EX-4588)"
+
+[dependencies]
+# Builds on the unification / rule-matching primitive. The proof-trace layer
+# (EX-4592) consumes the provenance this engine records.
+nusy-unify = { path = "../nusy-unify" }
