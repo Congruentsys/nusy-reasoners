@@ -64,13 +64,21 @@ pub struct TriplePattern {
 impl TriplePattern {
     /// Construct a pattern from three terms.
     pub fn new(subject: Term, predicate: Term, object: Term) -> Self {
-        Self { subject, predicate, object }
+        Self {
+            subject,
+            predicate,
+            object,
+        }
     }
 
     /// Construct a pattern from three strings via the [`Term::parse`] `?`-convention.
     /// e.g. `TriplePattern::parse("?x", "parent", "?y")`.
     pub fn parse(subject: &str, predicate: &str, object: &str) -> Self {
-        Self::new(Term::parse(subject), Term::parse(predicate), Term::parse(object))
+        Self::new(
+            Term::parse(subject),
+            Term::parse(predicate),
+            Term::parse(object),
+        )
     }
 
     /// The variable names appearing in this pattern, in subject/predicate/object order.
@@ -98,8 +106,16 @@ pub struct Triple {
 
 impl Triple {
     /// Construct a ground triple.
-    pub fn new(subject: impl Into<String>, predicate: impl Into<String>, object: impl Into<String>) -> Self {
-        Self { subject: subject.into(), predicate: predicate.into(), object: object.into() }
+    pub fn new(
+        subject: impl Into<String>,
+        predicate: impl Into<String>,
+        object: impl Into<String>,
+    ) -> Self {
+        Self {
+            subject: subject.into(),
+            predicate: predicate.into(),
+            object: object.into(),
+        }
     }
 }
 

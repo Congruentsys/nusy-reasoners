@@ -34,15 +34,26 @@ pub fn unify(a: &Term, b: &Term, subst: &Substitution) -> Option<Substitution> {
 
 /// Match a single pattern against one ground triple under `base`, returning the
 /// extended substitution if subject, predicate, and object all unify.
-pub fn match_triple(pat: &TriplePattern, fact: &Triple, base: &Substitution) -> Option<Substitution> {
+pub fn match_triple(
+    pat: &TriplePattern,
+    fact: &Triple,
+    base: &Substitution,
+) -> Option<Substitution> {
     let s = unify(&pat.subject, &Term::Const(fact.subject.clone()), base)?;
     let s = unify(&pat.predicate, &Term::Const(fact.predicate.clone()), &s)?;
     unify(&pat.object, &Term::Const(fact.object.clone()), &s)
 }
 
 /// All substitutions that make `pat` match some fact in `facts`, each extending `base`.
-pub fn match_pattern(pat: &TriplePattern, facts: &[Triple], base: &Substitution) -> Vec<Substitution> {
-    facts.iter().filter_map(|f| match_triple(pat, f, base)).collect()
+pub fn match_pattern(
+    pat: &TriplePattern,
+    facts: &[Triple],
+    base: &Substitution,
+) -> Vec<Substitution> {
+    facts
+        .iter()
+        .filter_map(|f| match_triple(pat, f, base))
+        .collect()
 }
 
 /// Solve a conjunction of patterns (a rule LHS) against `facts`: return every

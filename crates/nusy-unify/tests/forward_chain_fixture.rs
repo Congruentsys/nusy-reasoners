@@ -3,7 +3,7 @@
 //! [`fire_rule`] over a rule set to a fixpoint. This shows the unification +
 //! LHS-matching primitive is sufficient for the VOY-1 engine's matching layer.
 
-use nusy_unify::{fire_rule, Rule, Triple, TriplePattern};
+use nusy_unify::{Rule, Triple, TriplePattern, fire_rule};
 use std::collections::HashSet;
 
 /// Apply `rules` to `facts` repeatedly until no new triples appear (naive fixpoint).
@@ -47,13 +47,27 @@ fn transitive_ancestor_closure_reaches_fixpoint() {
         vec![TriplePattern::parse("?x", "ancestor", "?z")],
     );
     // a → b → c → d chain
-    let seed = vec![p("a", "parent", "b"), p("b", "parent", "c"), p("c", "parent", "d")];
+    let seed = vec![
+        p("a", "parent", "b"),
+        p("b", "parent", "c"),
+        p("c", "parent", "d"),
+    ];
 
     let closure = saturate(&[base, recursive], seed);
 
     // Every reachable ancestor pair must be derived.
-    for (x, z) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
-        assert!(closure.contains(&p(x, "ancestor", z)), "missing ancestor({x},{z})");
+    for (x, z) in [
+        ("a", "b"),
+        ("a", "c"),
+        ("a", "d"),
+        ("b", "c"),
+        ("b", "d"),
+        ("c", "d"),
+    ] {
+        assert!(
+            closure.contains(&p(x, "ancestor", z)),
+            "missing ancestor({x},{z})"
+        );
     }
     // No spurious reverse edges.
     assert!(!closure.contains(&p("d", "ancestor", "a")));

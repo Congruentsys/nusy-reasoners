@@ -143,7 +143,10 @@ mod tests {
         for s in &sols {
             assert_eq!(s.get_const("x"), Some("alice".to_string()));
             assert_eq!(s.get_const("y"), Some("bob".to_string()));
-            assert!(matches!(s.get_const("z").as_deref(), Some("carol") | Some("dave")));
+            assert!(matches!(
+                s.get_const("z").as_deref(),
+                Some("carol") | Some("dave")
+            ));
         }
     }
 
