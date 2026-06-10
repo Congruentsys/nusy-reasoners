@@ -1,0 +1,12 @@
+[package]
+name = "nusy-clinical-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Executable clinical-guideline fixture harness: patient facts → computable rules → derived recommendations + contraindications + proof paths + negative controls. The VOY-6 gold-case set (EX-4615)."
+
+[dependencies]
+# Exercises the VOY-1 derivation stack end-to-end on clinical cases.
+nusy-unify = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
