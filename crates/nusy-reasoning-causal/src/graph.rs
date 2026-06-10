@@ -167,6 +167,57 @@ impl CausalDag {
         })
     }
 
+    /// Build a DAG from Y-graph knowledge triples (EX-4638, VOY-V18-1).
+    ///
+    /// The derivation front-end for V18: lets the existing Pearl do-calculus
+    /// engine run over Y1/Y2 knowledge triples instead of kanban relations.
+    /// Unlike [`from_relation_batches`](Self::from_relation_batches) (kanban
+    /// `RelationsTable` schema: source/target/predicate at cols 1/2/3), this
+    /// reads the **Y-graph triple schema** — subject/predicate/object at the
+    /// `nusy_arrow_core::schema::col` positions (1/2/3) — and turns each
+    /// causal-predicate triple into a directed edge `subject → object`.
+    ///
+    /// Only active triples should be passed in; the caller (e.g. a dual-store
+    /// `query`) is responsible for excluding tombstoned rows. Non-causal
+    /// predicates (labels, types, …) are skipped, mirroring
+    /// `DualStore::build_causal_dag`.
+    pub fn from_y_graph(batches: &[RecordBatch]) -> Result<Self> {
+        // Y-graph triple schema column positions (nusy_arrow_core::schema::col).
+        const SUBJECT_COL: usize = 1;
+        const PREDICATE_COL: usize = 2;
+        const OBJECT_COL: usize = 3;
+
+        let mut dag = CausalDag::new();
+
+        for batch in batches {
+            let subjects = batch
+                .column(SUBJECT_COL)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("subject column should be StringArray");
+            let predicates = batch
+                .column(PREDICATE_COL)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("predicate column should be StringArray");
+            let objects = batch
+                .column(OBJECT_COL)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("object column should be StringArray");
+
+            for i in 0..batch.num_rows() {
+                let predicate = predicates.value(i);
+                // Only causal predicates become directional edges.
+                if is_causal_predicate(predicate) {
+                    dag.add_edge(subjects.value(i), objects.value(i), predicate);
+                }
+            }
+        }
+
+        Ok(dag)
+    }
+
     /// Add a directed edge: source → target.
     ///
     /// Uses `Arc::make_mut` for copy-on-write: if the base data is shared
@@ -1310,5 +1361,86 @@ mod tests {
         assert!(!mutilated.has_path("A", "D"));
         // B→C→D still works
         assert!(mutilated.has_path("B", "D"));
+    }
+
+    // ── from_y_graph (EX-4638): build the causal DAG from Y-graph triples ──
+
+    /// Build a Y-graph triple-schema batch: col0=id (unused), col1=subject,
+    /// col2=predicate, col3=object — matching `nusy_arrow_core::schema::col`.
+    fn y_triple_batch(rows: &[(&str, &str, &str)]) -> RecordBatch {
+        use arrow::array::ArrayRef;
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        let subjects: Vec<&str> = rows.iter().map(|(s, _, _)| *s).collect();
+        let predicates: Vec<&str> = rows.iter().map(|(_, p, _)| *p).collect();
+        let objects: Vec<&str> = rows.iter().map(|(_, _, o)| *o).collect();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("subject", DataType::Utf8, false),
+            Field::new("predicate", DataType::Utf8, false),
+            Field::new("object", DataType::Utf8, false),
+        ]));
+        let cols: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(vec!["row"; rows.len()])),
+            Arc::new(StringArray::from(subjects)),
+            Arc::new(StringArray::from(predicates)),
+            Arc::new(StringArray::from(objects)),
+        ];
+        RecordBatch::try_new(schema, cols).expect("valid triple batch")
+    }
+
+    #[test]
+    fn test_from_y_graph_builds_causal_edges() {
+        // A causes B ; B depends_on C ; A hasLabel "foo" (non-causal, skipped).
+        let batch = y_triple_batch(&[
+            ("A", "causes", "B"),
+            ("B", "depends_on", "C"),
+            ("A", "hasLabel", "foo"),
+        ]);
+        let dag = CausalDag::from_y_graph(&[batch]).expect("build from y-graph");
+
+        // Only causal-edge endpoints become nodes — "foo" is excluded.
+        assert_eq!(dag.node_count(), 3, "A, B, C — not the label object 'foo'");
+        assert_eq!(
+            dag.edge_count(),
+            2,
+            "two causal edges, label triple skipped"
+        );
+        assert_eq!(
+            dag.children_of("A").len(),
+            1,
+            "A→B only (label edge skipped)"
+        );
+        assert_eq!(dag.parents_of("C").len(), 1, "C has parent B");
+        // The derivation front-end supports transitive closure the engine needs.
+        assert!(dag.has_path("A", "C"), "A → B → C is derivable");
+        assert!(!dag.has_path("C", "A"), "edges are directional");
+    }
+
+    #[test]
+    fn test_from_y_graph_skips_non_causal_predicates() {
+        // No causal predicates → empty DAG.
+        let batch = y_triple_batch(&[("A", "hasLabel", "foo"), ("A", "rdf:type", "Patient")]);
+        let dag = CausalDag::from_y_graph(&[batch]).expect("build from y-graph");
+        assert_eq!(dag.node_count(), 0);
+        assert_eq!(dag.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_from_y_graph_empty() {
+        let dag = CausalDag::from_y_graph(&[]).expect("build from empty");
+        assert_eq!(dag.node_count(), 0);
+        assert_eq!(dag.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_from_y_graph_combines_multiple_batches() {
+        // Edges split across batches must combine into one reachable chain.
+        let b1 = y_triple_batch(&[("A", "causes", "B")]);
+        let b2 = y_triple_batch(&[("B", "causes", "C")]);
+        let dag = CausalDag::from_y_graph(&[b1, b2]).expect("build from y-graph");
+        assert_eq!(dag.node_count(), 3);
+        assert_eq!(dag.edge_count(), 2);
+        assert!(dag.has_path("A", "C"), "chain spans both batches");
     }
 }
