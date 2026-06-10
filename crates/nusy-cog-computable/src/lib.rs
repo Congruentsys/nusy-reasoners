@@ -81,7 +81,10 @@ pub struct NamedRule {
 impl NamedRule {
     /// Construct a named rule.
     pub fn new(id: impl Into<String>, rule: Rule) -> Self {
-        Self { id: id.into(), rule }
+        Self {
+            id: id.into(),
+            rule,
+        }
     }
 }
 
@@ -303,7 +306,10 @@ pub fn dereify(triples: &[Triple]) -> Result<ComputableY2, DereifyError> {
                 .ok_or_else(|| DereifyError::Malformed(format!("{cn} missing {P_CODE_VAL}")))?;
             codes.push(Code::new(sys, val));
         }
-        bundle.value_sets.push(ValueSet { name: name.to_string(), codes });
+        bundle.value_sets.push(ValueSet {
+            name: name.to_string(),
+            codes,
+        });
     }
 
     Ok(bundle)
@@ -312,9 +318,15 @@ pub fn dereify(triples: &[Triple]) -> Result<ComputableY2, DereifyError> {
 fn read_atoms(ix: &Index, node: &str, pred: &str) -> Result<Vec<TriplePattern>, DereifyError> {
     let mut atoms = Vec::new();
     for an in ix.ordered_children(node, pred)? {
-        let s = ix.one(an, P_SUBJ).ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_SUBJ}")))?;
-        let p = ix.one(an, P_PRED).ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_PRED}")))?;
-        let o = ix.one(an, P_OBJ).ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_OBJ}")))?;
+        let s = ix
+            .one(an, P_SUBJ)
+            .ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_SUBJ}")))?;
+        let p = ix
+            .one(an, P_PRED)
+            .ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_PRED}")))?;
+        let o = ix
+            .one(an, P_OBJ)
+            .ok_or_else(|| DereifyError::Malformed(format!("{an} missing {P_OBJ}")))?;
         atoms.push(TriplePattern::parse(s, p, o));
     }
     Ok(atoms)
@@ -425,7 +437,10 @@ mod tests {
                         .recommend(Action::new("bp-140-90", "Treat to <140/90")),
                 ),
         );
-        let b = ComputableY2 { plans: vec![plan], ..Default::default() };
+        let b = ComputableY2 {
+            plans: vec![plan],
+            ..Default::default()
+        };
         assert_eq!(rt(&b), b);
     }
 
@@ -435,9 +450,15 @@ mod tests {
             value_sets: vec![
                 ValueSet {
                     name: "HypertensionVS".into(),
-                    codes: vec![Code::new("SNOMED", "38341003"), Code::new("SNOMED", "59621000")],
+                    codes: vec![
+                        Code::new("SNOMED", "38341003"),
+                        Code::new("SNOMED", "59621000"),
+                    ],
                 },
-                ValueSet { name: "Empty".into(), codes: vec![] },
+                ValueSet {
+                    name: "Empty".into(),
+                    codes: vec![],
+                },
             ],
             ..Default::default()
         };
@@ -478,7 +499,10 @@ mod tests {
     fn ignores_unrelated_cog_triples() {
         // dereify runs over a whole COG's Y2 layer — plain domain triples are ignored.
         let mut triples = reify(&ComputableY2 {
-            value_sets: vec![ValueSet { name: "VS".into(), codes: vec![Code::new("S", "1")] }],
+            value_sets: vec![ValueSet {
+                name: "VS".into(),
+                codes: vec![Code::new("S", "1")],
+            }],
             ..Default::default()
         });
         triples.push(Triple::new("alice", "parent", "bob")); // ordinary Y1 fact
