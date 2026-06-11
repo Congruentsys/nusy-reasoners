@@ -1,0 +1,15 @@
+[package]
+name = "nusy-router"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Route/no-route + rule-path classifier for the provable-claim gate: a fast predicate-based pre-filter that decides which claims are worth invoking the engine on, plus a stable RulePath surfaced from a Proven response (VOY-V18-5, EX-4611)"
+
+[dependencies]
+# Pre-filter inspects the engine's Saturation and (optionally) the rule schema.
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+# Rule-path extraction reads GateResponse::Proven { proof }.
+nusy-gate = { path = "../nusy-gate" }
+# Triple / IdRule term model.
+nusy-unify = { path = "../nusy-unify" }
