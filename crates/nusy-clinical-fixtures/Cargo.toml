@@ -14,3 +14,8 @@ nusy-forward-chain = { path = "../nusy-forward-chain" }
 [dev-dependencies]
 # The EXPR-4578.3 eval example checks surfaced provenance groundedness.
 nusy-provenance = { path = "../nusy-provenance" }
+# Zero-copy-adoption integration test (EX-4671): drives gold cases through the
+# engine → provenance → gate on the Arrow path. The materialization-counter feature
+# lets the test assert the Arrow hot path never materializes a Vec saturation.
+nusy-gate = { path = "../nusy-gate" }
+nusy-forward-chain = { path = "../nusy-forward-chain", features = ["materialization-counter"] }

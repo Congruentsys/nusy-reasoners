@@ -38,7 +38,7 @@
 //! assert!(!gate.gate(&Triple::new("p1", "at_risk", "stroke")).is_proven());
 //! ```
 
-use nusy_forward_chain::{ProofTree, Saturation};
+use nusy_forward_chain::{ArrowSaturation, ProofTree, Saturation};
 use nusy_unify::Triple;
 
 /// The gate's verdict on a claim.
@@ -109,25 +109,55 @@ pub struct GateSummary {
     pub unproven: usize,
 }
 
-/// The provable-claim gate over a forward-chained [`Saturation`].
+/// Which saturation the gate proves against. Both back-ends answer the same
+/// [`proof_of`](Saturation::proof_of) query; the Arrow back-end (EX-4671) does so
+/// **without** materializing a `Vec<Triple>` [`Saturation`] — the gate reads the
+/// engine's Arrow batches directly (the shared-memory-space path, VY-4667).
+#[derive(Debug, Clone)]
+enum Backend {
+    /// The materialized Vec saturation (the original, stable path).
+    Vec(Saturation),
+    /// The engine's Arrow saturation, queried zero-copy.
+    Arrow(ArrowSaturation),
+}
+
+/// The provable-claim gate over a forward-chained saturation.
 ///
 /// Construct it from the engine's saturation (the closed fact set + derivations); each
 /// [`gate`](Self::gate) call asks the proof API whether a claim holds and returns the verdict.
+/// Use [`new`](Self::new) for the materialized [`Saturation`] or [`from_arrow`](Self::from_arrow)
+/// to gate directly over the engine's [`ArrowSaturation`] with no Vec materialization.
 #[derive(Debug, Clone)]
 pub struct ProvableClaimGate {
-    saturation: Saturation,
+    backend: Backend,
 }
 
 impl ProvableClaimGate {
-    /// Build a gate over the engine's saturated knowledge.
+    /// Build a gate over the engine's saturated knowledge (materialized Vec form).
     pub fn new(saturation: Saturation) -> Self {
-        Self { saturation }
+        Self {
+            backend: Backend::Vec(saturation),
+        }
+    }
+
+    /// Build a gate directly over the engine's [`ArrowSaturation`] — the zero-copy path
+    /// (EX-4671): the gate queries the Arrow batches and never materializes a
+    /// `Vec<Triple>` saturation. Verdicts are identical to [`new`](Self::new) (the
+    /// back-ends share `proof_of` semantics; see VY-4667 phase-3 differential tests).
+    pub fn from_arrow(saturation: ArrowSaturation) -> Self {
+        Self {
+            backend: Backend::Arrow(saturation),
+        }
     }
 
     /// Gate one claim: provable → [`GateResponse::Proven`] with its proof; otherwise
     /// [`GateResponse::Unproven`] (flagged, never asserted).
     pub fn gate(&self, claim: &Triple) -> GateResponse {
-        match self.saturation.proof_of(claim) {
+        let proof = match &self.backend {
+            Backend::Vec(s) => s.proof_of(claim),
+            Backend::Arrow(s) => s.proof_of(claim),
+        };
+        match proof {
             Some(proof) => GateResponse::Proven {
                 claim: claim.clone(),
                 proof,

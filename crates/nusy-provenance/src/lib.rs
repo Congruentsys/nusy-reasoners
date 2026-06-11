@@ -49,7 +49,7 @@
 
 use std::collections::HashSet;
 
-use nusy_forward_chain::{ProofTree, Saturation};
+use nusy_forward_chain::{ArrowSaturation, ProofTree, Saturation};
 use nusy_unify::Triple;
 
 /// One rule application in a linearised proof: a conclusion justified by a rule firing over
@@ -149,6 +149,20 @@ impl Provenance {
 /// gate's signal to **abstain** instead of asserting. A bare axiom (a claim that *is* a seed
 /// fact) surfaces with itself as the sole citation and no steps.
 pub fn surface(sat: &Saturation, claim: &Triple) -> Option<Provenance> {
+    sat.proof_of(claim).map(|tree| Provenance::from_proof(&tree))
+}
+
+/// Surface provenance directly from the engine's [`ArrowSaturation`] — the zero-copy
+/// path (EX-4671). Identical result to [`surface`], but the proof is read off the
+/// engine's Arrow batches with no `Vec<Triple>` saturation materialized first (the
+/// shared-memory-space path, VY-4667).
+///
+/// **Retained boundary copy (documented):** the returned [`Provenance`] *owns* its
+/// `Triple`s (its public API — `axioms`/`steps` are consumed by `cql`/`cpg` and the
+/// fixtures, which must not borrow the engine's buffers). So the proof tree's terms are
+/// cloned once at this boundary, exactly as [`surface`] does. The win is eliminating the
+/// *upstream* full-saturation Vec materialization, not this API-level ownership copy.
+pub fn surface_arrow(sat: &ArrowSaturation, claim: &Triple) -> Option<Provenance> {
     sat.proof_of(claim).map(|tree| Provenance::from_proof(&tree))
 }
 

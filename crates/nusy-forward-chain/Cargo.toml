@@ -13,3 +13,9 @@ nusy-unify = { path = "../nusy-unify" }
 # Arrow substrate for the engine (EX-4668, VY-4667): TripleBatch / DerivationBatch
 # schemas and converters live in src/batch.rs.
 arrow = { workspace = true }
+
+[features]
+# Test-only instrumentation (EX-4671): counts crossings of the Arrow→Vec
+# materialization boundary so zero-copy-adoption tests can assert the Arrow hot
+# path never materializes a `Vec<Triple>` saturation. Off in production builds.
+materialization-counter = []

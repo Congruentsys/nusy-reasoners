@@ -274,6 +274,8 @@ impl ArrowSaturation {
     /// Materialize the stable Vec form: facts in global row order (seed first, then
     /// each round's delta in discovery order), derivations in derivation-row order.
     pub fn to_saturation(&self) -> Saturation {
+        #[cfg(feature = "materialization-counter")]
+        crate::matcount::bump();
         Saturation {
             facts: self.facts.to_triples(),
             derivations: self
@@ -281,6 +283,32 @@ impl ArrowSaturation {
                 .to_derivations(&self.facts)
                 .expect("derivation batch was encoded against these facts"),
         }
+    }
+}
+
+/// Test-only instrumentation (EX-4671, behind the `materialization-counter` feature):
+/// counts how many times the Arrow→Vec boundary [`ArrowSaturation::to_saturation`] is
+/// crossed. Zero-copy-adoption tests reset it, run the Arrow hot path, and assert the
+/// count stayed `0` — a precise proof that no `Vec<Triple>` saturation was materialized.
+/// The feature is never enabled in production builds, so this is a no-op there.
+#[cfg(feature = "materialization-counter")]
+pub mod matcount {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static MATERIALIZATIONS: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn bump() {
+        MATERIALIZATIONS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Materializations recorded since the last [`reset`].
+    pub fn count() -> usize {
+        MATERIALIZATIONS.load(Ordering::Relaxed)
+    }
+
+    /// Reset the counter at the start of a measured section.
+    pub fn reset() {
+        MATERIALIZATIONS.store(0, Ordering::Relaxed);
     }
 }
 
