@@ -170,14 +170,55 @@ pub fn match_conjunction_arrow(
     patterns: &[TriplePattern],
     facts: &TripleBatch,
 ) -> Vec<Substitution> {
+    let scans: Vec<(Vec<String>, Vec<Vec<String>>)> =
+        patterns.iter().map(|p| scan_pattern(p, facts)).collect();
+    join_scans(&scans)
+}
+
+/// Semi-naive **delta join** (EX-4593, VY-4667 phase 5): the solutions of `patterns` that
+/// use **at least one** fact from `delta` — the only solutions that can be *new* in a
+/// round whose previous round produced `delta`. Computed as the union, over each body
+/// position `i`, of the conjunction with pattern `i` scanned from `delta` and every other
+/// pattern scanned from `full`. This is the incremental engine's hot primitive: it never
+/// re-derives a solution all of whose facts predate the delta.
+///
+/// Empty `patterns` yields no solutions — a bodyless rule fires only at seed time, never
+/// from a delta. Solutions are **not** de-duplicated across positions: a solution whose
+/// facts include several delta members appears once per such position. The forward-chaining
+/// caller dedups by *conclusion* (its `round_seen`/`fact_row` guard), so the only effect is
+/// a little redundant grounding — never a duplicate or missing derived fact.
+pub fn match_conjunction_arrow_delta(
+    patterns: &[TriplePattern],
+    full: &TripleBatch,
+    delta: &TripleBatch,
+) -> Vec<Substitution> {
+    if patterns.is_empty() {
+        return Vec::new();
+    }
+    let full_scans: Vec<(Vec<String>, Vec<Vec<String>>)> =
+        patterns.iter().map(|p| scan_pattern(p, full)).collect();
+
+    let mut out: Vec<Substitution> = Vec::new();
+    for i in 0..patterns.len() {
+        // Pattern i is restricted to the delta; the rest reuse the full-batch scans.
+        let mut scans = full_scans.clone();
+        scans[i] = scan_pattern(&patterns[i], delta);
+        out.extend(join_scans(&scans));
+    }
+    out
+}
+
+/// Hash-join a sequence of per-pattern scans (`(vars, rows)`, as produced by
+/// [`scan_pattern`]) into the conjunction's solutions. Shared variables are the join key;
+/// new variables extend the bindings table. Empty input is vacuously true (one empty
+/// solution), matching the Vec engine.
+fn join_scans(scans: &[(Vec<String>, Vec<Vec<String>>)]) -> Vec<Substitution> {
     // Accumulated bindings table: one column per variable, one row per partial solution.
     // An empty conjunction is vacuously true: a single empty solution (Vec parity).
     let mut acc_vars: Vec<String> = Vec::new();
     let mut acc_rows: Vec<Vec<String>> = vec![Vec::new()];
 
-    for pat in patterns {
-        let (pat_vars, pat_rows) = scan_pattern(pat, facts);
-
+    for (pat_vars, pat_rows) in scans {
         // Shared variables = join key; new variables extend the table.
         let shared: Vec<(usize, usize)> = pat_vars
             .iter()
@@ -193,7 +234,7 @@ pub fn match_conjunction_arrow(
 
         // Build side: hash the pattern matches by their shared-variable value tuple.
         let mut built: HashMap<Vec<&str>, Vec<&Vec<String>>> = HashMap::new();
-        for row in &pat_rows {
+        for row in pat_rows {
             let key: Vec<&str> = shared.iter().map(|(_, pi)| row[*pi].as_str()).collect();
             built.entry(key).or_default().push(row);
         }

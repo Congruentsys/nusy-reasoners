@@ -56,7 +56,7 @@ pub mod batch;
 pub mod proof;
 pub use proof::ProofTree;
 
-use arrow_match::match_conjunction_arrow;
+use arrow_match::{match_conjunction_arrow, match_conjunction_arrow_delta};
 use batch::{DerivationBatch, TripleBatch};
 
 /// A rule tagged with a stable identifier, so each derived fact can name the rule
@@ -368,6 +368,102 @@ pub fn forward_chain_arrow(rules: &[IdRule], seed: Vec<Triple>) -> ArrowSaturati
         }
         facts.append_triples(&delta); // one RecordBatch per round — the EX-4593 delta seam
         all_derivations.extend(round_derivations);
+    }
+
+    let derivations = DerivationBatch::from_derivations(&all_derivations, &facts)
+        .expect("every premise of a recorded derivation is a fact row");
+    let derivation_row = (0..derivations.len())
+        .map(|i| (derivations.conclusion_at(i), i))
+        .collect();
+
+    ArrowSaturation {
+        facts,
+        derivations,
+        fact_row,
+        derivation_row,
+    }
+}
+
+/// Incrementally extend a `prior` saturation with `new_seed` facts — **semi-naive**
+/// re-derivation (EX-4593, VY-4667 phase 5).
+///
+/// Instead of re-running the full fixpoint over `prior ++ new_seed`, this seeds the new
+/// facts as the **first delta** and, each round, fires rules only over solutions that use
+/// at least one delta fact ([`match_conjunction_arrow_delta`]). Facts whose every premise
+/// pre-dated the delta are never re-derived — so the cost scales with what actually
+/// *changed*, not with the size of the closed graph. The common case: add a fact (or a
+/// freshly-perceived batch) to an already-saturated being and maintain its conclusions.
+///
+/// **Equivalence (the correctness contract):** the result — fact set and provability of
+/// every claim — is identical to `forward_chain_arrow(rules, prior_seed ++ new_seed)`.
+/// Prior derivations are carried forward; new ones are appended. Verified by differential
+/// tests against the full-refire engine (`tests/incremental_differential.rs`).
+pub fn forward_chain_arrow_incremental(
+    prior: &ArrowSaturation,
+    rules: &[IdRule],
+    new_seed: Vec<Triple>,
+) -> ArrowSaturation {
+    // Working fact set: every prior fact (already closed) keeps its identity; then the
+    // genuinely-new seed facts become the first delta.
+    let mut fact_row: HashMap<Triple, u64> = HashMap::new();
+    let mut all: Vec<Triple> = Vec::new();
+    for t in prior.facts.to_triples() {
+        fact_row.entry(t.clone()).or_insert(all.len() as u64);
+        all.push(t);
+    }
+    let mut delta: Vec<Triple> = Vec::new();
+    for t in new_seed {
+        if !fact_row.contains_key(&t) {
+            fact_row.insert(t.clone(), all.len() as u64);
+            all.push(t.clone());
+            delta.push(t);
+        }
+    }
+
+    // Carry the prior proofs forward; the fixpoint appends only the delta's consequences.
+    let mut all_derivations: Vec<Derivation> = prior
+        .derivations
+        .to_derivations(&prior.facts)
+        .expect("prior derivation batch was encoded against prior facts");
+    let mut facts = TripleBatch::from_triples(&all);
+
+    while !delta.is_empty() {
+        let delta_batch = TripleBatch::from_triples(&delta);
+        let mut next_delta: Vec<Triple> = Vec::new();
+        let mut round_seen: HashSet<Triple> = HashSet::new();
+
+        for r in rules {
+            for sol in match_conjunction_arrow_delta(&r.rule.lhs, &facts, &delta_batch) {
+                let premises: Vec<Triple> =
+                    r.rule.lhs.iter().filter_map(|p| sol.ground(p)).collect();
+
+                for head in &r.rule.rhs {
+                    let Some(conclusion) = sol.ground(head) else {
+                        continue; // unbound head var (non-range-restricted) → skip
+                    };
+                    if fact_row.contains_key(&conclusion) || round_seen.contains(&conclusion) {
+                        continue; // already known (prior or this round)
+                    }
+                    round_seen.insert(conclusion.clone());
+                    next_delta.push(conclusion.clone());
+                    all_derivations.push(Derivation {
+                        conclusion,
+                        rule_id: r.id.clone(),
+                        premises: premises.clone(),
+                    });
+                }
+            }
+        }
+
+        if next_delta.is_empty() {
+            break; // incremental fixpoint reached
+        }
+        let base = facts.len() as u64;
+        for (i, t) in next_delta.iter().enumerate() {
+            fact_row.insert(t.clone(), base + i as u64);
+        }
+        facts.append_triples(&next_delta);
+        delta = next_delta;
     }
 
     let derivations = DerivationBatch::from_derivations(&all_derivations, &facts)
