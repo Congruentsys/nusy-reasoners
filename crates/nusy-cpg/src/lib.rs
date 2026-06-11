@@ -44,8 +44,7 @@ use nusy_plandef::{Action, PlanAction, PlanDefinition};
 pub const GUIDELINE_ID: &str = "jnc8-hypertension";
 
 /// Citation for the imported guideline (provenance).
-pub const GUIDELINE_CITATION: &str =
-    "James PA et al. 2014 Evidence-Based Guideline for the Management of High Blood Pressure \
+pub const GUIDELINE_CITATION: &str = "James PA et al. 2014 Evidence-Based Guideline for the Management of High Blood Pressure \
      in Adults (JNC 8). JAMA. 2014;311(5):507-520.";
 
 /// The SNOMED codes each JNC 8 value set contains (illustrative anchors).
@@ -80,13 +79,11 @@ pub fn hypertension_jnc8() -> PlanDefinition {
             // Rec 3 — diabetes or CKD at any age → tighter target < 140/90 (overrides the
             // age-60 relaxation; both may be proposed, and the comorbid target is the governing one).
             .with_sub(
-                PlanAction::when(
-                    "Condition.code in \"DiabetesVS\" or Condition.code in \"CKDVS\"",
-                )
-                .recommend(Action::new(
-                    "bp-target-140-90-comorbid",
-                    "Diabetes/CKD: treat to BP < 140/90 mmHg",
-                )),
+                PlanAction::when("Condition.code in \"DiabetesVS\" or Condition.code in \"CKDVS\"")
+                    .recommend(Action::new(
+                        "bp-target-140-90-comorbid",
+                        "Diabetes/CKD: treat to BP < 140/90 mmHg",
+                    )),
             )
             // Rec 8 — CKD present → include an ACEI or ARB for renal protection.
             .with_sub(
@@ -129,8 +126,11 @@ mod tests {
 
     impl FactStore for Patient {
         fn get_property(&self, entity: &str, path: &[String]) -> Vec<Value> {
-            let key =
-                if path.is_empty() { entity.to_string() } else { format!("{entity}.{}", path.join(".")) };
+            let key = if path.is_empty() {
+                entity.to_string()
+            } else {
+                format!("{entity}.{}", path.join("."))
+            };
             self.props.get(&key).cloned().unwrap_or_default()
         }
         fn in_value_set(&self, code: &Code, valueset: &str) -> Option<bool> {
@@ -169,9 +169,16 @@ mod tests {
         assert!(ids.contains(&"bp-target-150-90"), "age>=60 → 150/90");
         assert!(!ids.contains(&"bp-target-140-90"), "not <60");
         assert!(!ids.contains(&"bp-target-140-90-comorbid"), "no DM/CKD");
-        assert!(ids.contains(&"init-first-line-general"), "non-black general first-line");
+        assert!(
+            ids.contains(&"init-first-line-general"),
+            "non-black general first-line"
+        );
         // The recommendation carries its evidence chain (root + age condition).
-        let target = out.proposed.iter().find(|p| p.action.id == "bp-target-150-90").unwrap();
+        let target = out
+            .proposed
+            .iter()
+            .find(|p| p.action.id == "bp-target-150-90")
+            .unwrap();
         assert!(target.evidence.iter().any(|e| e.contains("HypertensionVS")));
         assert!(target.evidence.iter().any(|e| e.contains("age >= 60")));
     }
@@ -200,9 +207,15 @@ mod tests {
             );
         let out = nusy_plandef::apply(&hypertension_jnc8(), &p).unwrap();
         let ids = proposed_ids(&out);
-        assert!(ids.contains(&"bp-target-140-90-comorbid"), "CKD → tighter target");
+        assert!(
+            ids.contains(&"bp-target-140-90-comorbid"),
+            "CKD → tighter target"
+        );
         assert!(ids.contains(&"init-acei-or-arb-ckd"), "CKD → ACEI/ARB");
-        assert!(ids.contains(&"bp-target-150-90"), "age>=60 base rec also fires");
+        assert!(
+            ids.contains(&"bp-target-150-90"),
+            "age>=60 base rec also fires"
+        );
     }
 
     #[test]
@@ -212,8 +225,14 @@ mod tests {
             .with("Patient.age", vec![Value::Integer(72)])
             .with("Condition.code", vec![Patient::code("00000000")]); // not in HypertensionVS
         let out = nusy_plandef::apply(&hypertension_jnc8(), &p).unwrap();
-        assert!(out.proposed.is_empty(), "no hypertension → no recommendations");
-        assert!(out.abstained.is_empty(), "false root prunes, does not abstain");
+        assert!(
+            out.proposed.is_empty(),
+            "no hypertension → no recommendations"
+        );
+        assert!(
+            out.abstained.is_empty(),
+            "false root prunes, does not abstain"
+        );
     }
 
     #[test]
@@ -225,8 +244,14 @@ mod tests {
         // no Patient.age fact
         let out = nusy_plandef::apply(&hypertension_jnc8(), &p).unwrap();
         let ids = proposed_ids(&out);
-        assert!(!ids.contains(&"bp-target-140-90"), "unknown age must not fire <60 target");
-        assert!(!ids.contains(&"bp-target-150-90"), "unknown age must not fire >=60 target");
+        assert!(
+            !ids.contains(&"bp-target-140-90"),
+            "unknown age must not fire <60 target"
+        );
+        assert!(
+            !ids.contains(&"bp-target-150-90"),
+            "unknown age must not fire >=60 target"
+        );
         // The age-band actions are surfaced as abstentions, not silently dropped.
         let abstained_ids: Vec<&str> = out.abstained.iter().map(|a| a.action.id.as_str()).collect();
         assert!(abstained_ids.contains(&"bp-target-140-90"));
@@ -242,10 +267,16 @@ mod tests {
         let p = Patient::default()
             .with("Patient.age", vec![Value::Integer(70)])
             .with("Patient.race", vec![Value::Str("white".into())])
-            .with("Condition.code", vec![Patient::code("38341003"), Patient::code("433146000")]);
+            .with(
+                "Condition.code",
+                vec![Patient::code("38341003"), Patient::code("433146000")],
+            );
         let out = nusy_plandef::apply(&hypertension_jnc8(), &p).unwrap();
         let ids = proposed_ids(&out);
-        assert!(!ids.iter().any(|id| id.contains("combine")), "ACEI+ARB combination never proposed");
+        assert!(
+            !ids.iter().any(|id| id.contains("combine")),
+            "ACEI+ARB combination never proposed"
+        );
         // Sanity: the CKD ACEI/ARB single-agent rec DID fire (so the arm was actually reached).
         assert!(ids.contains(&"init-acei-or-arb-ckd"));
     }
