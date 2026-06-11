@@ -47,7 +47,7 @@
 //! assert_eq!(proof.premises.len(), 2); // parent(a,b), parent(b,c)
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nusy_unify::{Rule, Triple, match_conjunction};
 
@@ -55,6 +55,9 @@ pub mod arrow_match;
 pub mod batch;
 pub mod proof;
 pub use proof::ProofTree;
+
+use arrow_match::match_conjunction_arrow;
+use batch::{DerivationBatch, TripleBatch};
 
 /// A rule tagged with a stable identifier, so each derived fact can name the rule
 /// that produced it. The identifier flows into [`Derivation::rule_id`].
@@ -128,7 +131,24 @@ impl Saturation {
 /// and are silently skipped — the engine never invents constants. The *first*
 /// derivation found for a fact is kept; alternative derivations of the same fact are
 /// not recorded (EX-4592 can enumerate them if proof multiplicity is ever needed).
+///
+/// **Substrate (EX-4670):** since VY-4667 phase 3 the loop runs on the **Arrow**
+/// substrate — [`forward_chain_arrow`] over a [`TripleBatch`] with Arrow-native
+/// matching ([`arrow_match`]) — and materializes the final [`Saturation`] once at the
+/// fixpoint. The public contract is unchanged: same signature, same fact membership,
+/// same per-round discovery order (seed first, then each round's delta). Within a
+/// round, enumeration order follows the Arrow hash-join rather than the old nested
+/// scan; no API consumer observes order within a round as part of the contract.
 pub fn forward_chain(rules: &[IdRule], seed: Vec<Triple>) -> Saturation {
+    forward_chain_arrow(rules, seed).to_saturation()
+}
+
+/// The pre-EX-4670 Vec-based engine, retained as the **reference oracle** for
+/// differential tests and Arrow-vs-Vec benchmarks. Semantics match [`forward_chain`]
+/// (same fact set and per-round deltas; within-round order may differ). Not used by
+/// the engine itself; scheduled for removal once the incremental engine (EX-4593)
+/// lands with its own oracle suite.
+pub fn forward_chain_vec(rules: &[IdRule], seed: Vec<Triple>) -> Saturation {
     let mut seen: HashSet<Triple> = seed.iter().cloned().collect();
     let mut sat = Saturation {
         facts: seed,
@@ -173,4 +193,165 @@ pub fn forward_chain(rules: &[IdRule], seed: Vec<Triple>) -> Saturation {
     }
 
     sat
+}
+
+/// An Arrow-native saturation: the closed fact set as a [`TripleBatch`] (seed round +
+/// one delta round per fixpoint iteration — the seam the semi-naive evaluator EX-4593
+/// restricts matching to) and the derivations as a [`DerivationBatch`] (conclusion
+/// terms + rule id + premise row refs). Downstream layers (provenance, gate,
+/// cog-computable — EX-4671) consume these batches directly; [`to_saturation`]
+/// (ArrowSaturation::to_saturation) materializes the Vec form for the stable API.
+#[derive(Debug, Clone)]
+pub struct ArrowSaturation {
+    facts: TripleBatch,
+    derivations: DerivationBatch,
+    /// First-occurrence global fact row per triple (membership + premise resolution).
+    fact_row: HashMap<Triple, u64>,
+    /// Derivation-batch row per derived conclusion (first derivation kept).
+    derivation_row: HashMap<Triple, usize>,
+}
+
+impl ArrowSaturation {
+    /// The fact store: seed round + one [`RecordBatch`](arrow::record_batch::RecordBatch)
+    /// delta per fixpoint round.
+    pub fn facts(&self) -> &TripleBatch {
+        &self.facts
+    }
+
+    /// The derivations as an Arrow batch (phase-1 schema).
+    pub fn derivation_batch(&self) -> &DerivationBatch {
+        &self.derivations
+    }
+
+    /// Is `t` in the saturated fact set?
+    pub fn contains(&self, t: &Triple) -> bool {
+        self.fact_row.contains_key(t)
+    }
+
+    /// Number of derived (non-seed) facts.
+    pub fn derived_count(&self) -> usize {
+        self.derivations.len()
+    }
+
+    /// The derivation of `t`, decoded from the derivation batch (`None` for seed facts
+    /// and unknown triples).
+    pub fn derivation_of(&self, t: &Triple) -> Option<Derivation> {
+        let row = *self.derivation_row.get(t)?;
+        Some(
+            self.derivations
+                .decode_row(row, &self.facts)
+                .expect("derivation batch was encoded against these facts"),
+        )
+    }
+
+    /// Build the full proof tree for `target`, recursively expanding derived premises
+    /// down to seed axioms (the Arrow-side equivalent of [`Saturation::proof_of`]
+    /// (proof::ProofTree)). `None` if `target` is not in the saturated fact set.
+    pub fn proof_of(&self, target: &Triple) -> Option<ProofTree> {
+        if let Some(d) = self.derivation_of(target) {
+            let premises = d
+                .premises
+                .iter()
+                .map(|p| {
+                    self.proof_of(p)
+                        .expect("premises of a recorded derivation are facts")
+                })
+                .collect();
+            Some(ProofTree::Derived {
+                conclusion: target.clone(),
+                rule_id: d.rule_id,
+                premises,
+            })
+        } else if self.contains(target) {
+            Some(ProofTree::Axiom(target.clone()))
+        } else {
+            None
+        }
+        // Termination: forward_chain_arrow derives a fact only from premises present in
+        // an earlier round, so the derivation graph is acyclic and the recursion finite.
+    }
+
+    /// Materialize the stable Vec form: facts in global row order (seed first, then
+    /// each round's delta in discovery order), derivations in derivation-row order.
+    pub fn to_saturation(&self) -> Saturation {
+        Saturation {
+            facts: self.facts.to_triples(),
+            derivations: self
+                .derivations
+                .to_derivations(&self.facts)
+                .expect("derivation batch was encoded against these facts"),
+        }
+    }
+}
+
+/// Forward-chain `rules` over `seed` to a fixpoint **on the Arrow substrate**,
+/// returning the saturation as Arrow batches (EX-4670, VY-4667 phase 3).
+///
+/// Each round matches every rule body via [`match_conjunction_arrow`] against the
+/// accumulated [`TripleBatch`], grounds new conclusions, and appends them as that
+/// round's **delta batch** — explicitly addressable via
+/// [`TripleBatch::rounds`](batch::TripleBatch::rounds), which is the seam EX-4593's
+/// semi-naive strategy plugs into (restrict matching to the last delta) without
+/// restructuring this loop. Dedup and premise row resolution use a triple→row hash
+/// index maintained alongside the batches (an index over the Arrow store, not a
+/// second store). Derivations are encoded into the [`DerivationBatch`] at the fixpoint.
+pub fn forward_chain_arrow(rules: &[IdRule], seed: Vec<Triple>) -> ArrowSaturation {
+    let mut fact_row: HashMap<Triple, u64> = HashMap::new();
+    for (row, t) in seed.iter().enumerate() {
+        fact_row.entry(t.clone()).or_insert(row as u64);
+    }
+    let mut facts = TripleBatch::from_triples(&seed);
+    let mut all_derivations: Vec<Derivation> = Vec::new();
+
+    loop {
+        let mut delta: Vec<Triple> = Vec::new();
+        let mut round_derivations: Vec<Derivation> = Vec::new();
+        let mut round_seen: HashSet<Triple> = HashSet::new();
+
+        for r in rules {
+            for sol in match_conjunction_arrow(&r.rule.lhs, &facts) {
+                let premises: Vec<Triple> =
+                    r.rule.lhs.iter().filter_map(|p| sol.ground(p)).collect();
+
+                for head in &r.rule.rhs {
+                    let Some(conclusion) = sol.ground(head) else {
+                        continue; // unbound head var (non-range-restricted) → skip
+                    };
+                    if fact_row.contains_key(&conclusion) || round_seen.contains(&conclusion) {
+                        continue; // already known, or already derived this round
+                    }
+                    round_seen.insert(conclusion.clone());
+                    delta.push(conclusion.clone());
+                    round_derivations.push(Derivation {
+                        conclusion,
+                        rule_id: r.id.clone(),
+                        premises: premises.clone(),
+                    });
+                }
+            }
+        }
+
+        if delta.is_empty() {
+            break; // fixpoint reached
+        }
+        let base = facts.len() as u64;
+        for (i, t) in delta.iter().enumerate() {
+            fact_row.insert(t.clone(), base + i as u64);
+        }
+        facts.append_triples(&delta); // one RecordBatch per round — the EX-4593 delta seam
+        all_derivations.extend(round_derivations);
+    }
+
+    let derivations = DerivationBatch::from_derivations(&all_derivations, &facts)
+        .expect("every premise of a recorded derivation is a fact row");
+    let derivation_row = (0..derivations.len())
+        .map(|i| (derivations.conclusion_at(i), i))
+        .collect();
+
+    ArrowSaturation {
+        facts,
+        derivations,
+        fact_row,
+        derivation_row,
+    }
 }
