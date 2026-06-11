@@ -22,6 +22,7 @@
 //! indexing (EX-4670) build on top of this module; the public Vec-based engine API is
 //! untouched.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -301,6 +302,13 @@ impl DerivationBatch {
         derivations: &[Derivation],
         facts: &TripleBatch,
     ) -> Result<Self, BatchError> {
+        // One pass over `facts` builds the first-occurrence row index; per-premise
+        // `position_of` scans would be O(derivations × premises × facts).
+        let mut row_of: HashMap<Triple, u64> = HashMap::new();
+        for row in 0..facts.len() {
+            row_of.entry(facts.triple_at(row)).or_insert(row as u64);
+        }
+
         let mut conc_s = StringDictionaryBuilder::<UInt32Type>::new();
         let mut conc_p = StringDictionaryBuilder::<UInt32Type>::new();
         let mut conc_o = StringDictionaryBuilder::<UInt32Type>::new();
@@ -314,8 +322,9 @@ impl DerivationBatch {
             rule_ids.append_value(&d.rule_id);
             for premise in &d.premises {
                 let row =
-                    facts
-                        .position_of(premise)
+                    row_of
+                        .get(premise)
+                        .copied()
                         .ok_or_else(|| BatchError::PremiseNotInFacts {
                             premise: premise.clone(),
                         })?;
@@ -351,49 +360,57 @@ impl DerivationBatch {
         self.batch.num_rows() == 0
     }
 
-    /// Decode back to [`Derivation`]s, resolving premise row refs through `facts`.
+    /// The conclusion triple of derivation row `i` (no premise resolution).
+    pub fn conclusion_at(&self, i: usize) -> Triple {
+        Triple::new(
+            dict_value(&self.batch, 0, i),
+            dict_value(&self.batch, 1, i),
+            dict_value(&self.batch, 2, i),
+        )
+    }
+
+    /// Decode derivation row `i`, resolving premise row refs through `facts`.
     ///
     /// Errors with [`BatchError::RowOutOfRange`] if a row ref does not resolve —
     /// i.e. `facts` is not the batch this was encoded against.
-    pub fn to_derivations(&self, facts: &TripleBatch) -> Result<Vec<Derivation>, BatchError> {
-        let n = self.batch.num_rows();
-        let mut out = Vec::with_capacity(n);
+    pub fn decode_row(&self, i: usize, facts: &TripleBatch) -> Result<Derivation, BatchError> {
         let premise_lists = self
             .batch
             .column(4)
             .as_any()
             .downcast_ref::<arrow::array::ListArray>()
             .expect("premise_rows is a List<UInt64> by schema");
-        for i in 0..n {
-            let conclusion = Triple::new(
-                dict_value(&self.batch, 0, i),
-                dict_value(&self.batch, 1, i),
-                dict_value(&self.batch, 2, i),
-            );
-            let rule_id = dict_value(&self.batch, 3, i).to_string();
-            let rows = premise_lists.value(i);
-            let rows = rows
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .expect("premise_rows items are UInt64 by schema");
-            let mut premises = Vec::with_capacity(rows.len());
-            for j in 0..rows.len() {
-                let row = rows.value(j);
-                if row as usize >= facts.len() {
-                    return Err(BatchError::RowOutOfRange {
-                        row,
-                        len: facts.len() as u64,
-                    });
-                }
-                premises.push(facts.triple_at(row as usize));
+        let rows = premise_lists.value(i);
+        let rows = rows
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("premise_rows items are UInt64 by schema");
+        let mut premises = Vec::with_capacity(rows.len());
+        for j in 0..rows.len() {
+            let row = rows.value(j);
+            if row as usize >= facts.len() {
+                return Err(BatchError::RowOutOfRange {
+                    row,
+                    len: facts.len() as u64,
+                });
             }
-            out.push(Derivation {
-                conclusion,
-                rule_id,
-                premises,
-            });
+            premises.push(facts.triple_at(row as usize));
         }
-        Ok(out)
+        Ok(Derivation {
+            conclusion: self.conclusion_at(i),
+            rule_id: dict_value(&self.batch, 3, i).to_string(),
+            premises,
+        })
+    }
+
+    /// Decode back to [`Derivation`]s, resolving premise row refs through `facts`.
+    ///
+    /// Errors with [`BatchError::RowOutOfRange`] if a row ref does not resolve —
+    /// i.e. `facts` is not the batch this was encoded against.
+    pub fn to_derivations(&self, facts: &TripleBatch) -> Result<Vec<Derivation>, BatchError> {
+        (0..self.batch.num_rows())
+            .map(|i| self.decode_row(i, facts))
+            .collect()
     }
 }
 
