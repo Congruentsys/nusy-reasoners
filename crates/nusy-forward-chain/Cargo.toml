@@ -10,3 +10,6 @@ description = "Forward-chaining inference engine: iterate Y2 rules over Y1 tripl
 # Builds on the unification / rule-matching primitive. The proof-trace layer
 # (EX-4592) consumes the provenance this engine records.
 nusy-unify = { path = "../nusy-unify" }
+# Arrow substrate for the engine (EX-4668, VY-4667): TripleBatch / DerivationBatch
+# schemas and converters live in src/batch.rs.
+arrow = { workspace = true }

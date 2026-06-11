@@ -51,6 +51,7 @@ use std::collections::HashSet;
 
 use nusy_unify::{Rule, Triple, match_conjunction};
 
+pub mod batch;
 pub mod proof;
 pub use proof::ProofTree;
 
