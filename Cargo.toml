@@ -8,7 +8,7 @@
 # CI, licensing, and governance are proven before code arrives.
 
 [workspace]
-members = []
+members = ["crates/repo-invariants"]
 resolver = "2"
 
 [workspace.package]

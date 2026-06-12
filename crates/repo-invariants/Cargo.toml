@@ -1,0 +1,10 @@
+[package]
+name = "repo-invariants"
+description = "CI-enforced repository invariants (license, governance) — removed when Wave-1 crates land"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
