@@ -58,6 +58,9 @@
 //! assert!(matches!(router.classify(&foreign), RouteDecision::Neural { .. }));
 //! ```
 
+pub mod reasoner_router;
+pub use reasoner_router::{AnswerClass, ParReport, ReasonerRouter, RouteOutcome, RoutedVerdict};
+
 use std::collections::HashSet;
 
 use nusy_forward_chain::{IdRule, Saturation};

@@ -14,3 +14,10 @@ nusy-forward-chain = { path = "../nusy-forward-chain" }
 nusy-gate = { path = "../nusy-gate" }
 # Triple / IdRule term model.
 nusy-unify = { path = "../nusy-unify" }
+# EX-4748: envelope dispatch over the Reasoner contract (arrow-free, Wave-1 movable).
+nusy-reasoner = { path = "../nusy-reasoner" }
+
+[dev-dependencies]
+# PAR standing regression drives the clinical gold panel through real adapters.
+nusy-reasoner-adapters = { path = "../nusy-reasoner-adapters" }
+nusy-clinical-fixtures = { path = "../nusy-clinical-fixtures" }
