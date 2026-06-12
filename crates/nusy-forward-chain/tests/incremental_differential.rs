@@ -158,7 +158,9 @@ fn incremental_beats_full_refire_on_long_chain() {
     // A chain → a quadratic transitive closure. Adding one edge. (Kept modest so the test
     // stays fast; the margin is large enough to prove the trend regardless.)
     let n = 45usize;
-    let chain: Vec<Triple> = (0..n).map(|i| parent(&format!("c{i}"), &format!("c{}", i + 1))).collect();
+    let chain: Vec<Triple> = (0..n)
+        .map(|i| parent(&format!("c{i}"), &format!("c{}", i + 1)))
+        .collect();
     let new = vec![parent(&format!("c{n}"), "tail")];
 
     let reps = 5;

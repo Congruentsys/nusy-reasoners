@@ -85,7 +85,11 @@ impl Provenance {
         let mut seen_ax: HashSet<Triple> = HashSet::new();
         let mut seen_step: HashSet<Triple> = HashSet::new();
         flatten(tree, &mut axioms, &mut steps, &mut seen_ax, &mut seen_step);
-        Self { claim: tree.conclusion().clone(), axioms, steps }
+        Self {
+            claim: tree.conclusion().clone(),
+            axioms,
+            steps,
+        }
     }
 
     /// The rule ids used, in derivation order (a "lemma trail" for the answer).
@@ -118,7 +122,10 @@ impl Provenance {
     pub fn render(&self) -> String {
         let mut out = String::new();
         for ax in &self.axioms {
-            out.push_str(&format!("given:  {} {} {}\n", ax.subject, ax.predicate, ax.object));
+            out.push_str(&format!(
+                "given:  {} {} {}\n",
+                ax.subject, ax.predicate, ax.object
+            ));
         }
         for step in &self.steps {
             let prems: Vec<String> = step
@@ -149,7 +156,8 @@ impl Provenance {
 /// gate's signal to **abstain** instead of asserting. A bare axiom (a claim that *is* a seed
 /// fact) surfaces with itself as the sole citation and no steps.
 pub fn surface(sat: &Saturation, claim: &Triple) -> Option<Provenance> {
-    sat.proof_of(claim).map(|tree| Provenance::from_proof(&tree))
+    sat.proof_of(claim)
+        .map(|tree| Provenance::from_proof(&tree))
 }
 
 /// Surface provenance directly from the engine's [`ArrowSaturation`] — the zero-copy
@@ -163,7 +171,8 @@ pub fn surface(sat: &Saturation, claim: &Triple) -> Option<Provenance> {
 /// cloned once at this boundary, exactly as [`surface`] does. The win is eliminating the
 /// *upstream* full-saturation Vec materialization, not this API-level ownership copy.
 pub fn surface_arrow(sat: &ArrowSaturation, claim: &Triple) -> Option<Provenance> {
-    sat.proof_of(claim).map(|tree| Provenance::from_proof(&tree))
+    sat.proof_of(claim)
+        .map(|tree| Provenance::from_proof(&tree))
 }
 
 /// Post-order flatten: emit each subtree's premises before the step that consumes them, so the
@@ -181,7 +190,11 @@ fn flatten(
                 axioms.push(t.clone());
             }
         }
-        ProofTree::Derived { conclusion, rule_id, premises } => {
+        ProofTree::Derived {
+            conclusion,
+            rule_id,
+            premises,
+        } => {
             for p in premises {
                 flatten(p, axioms, steps, seen_ax, seen_step);
             }
@@ -199,7 +212,7 @@ fn flatten(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nusy_forward_chain::{forward_chain, IdRule};
+    use nusy_forward_chain::{IdRule, forward_chain};
     use nusy_unify::{Rule, TriplePattern};
 
     fn t(s: &str, p: &str, o: &str) -> Triple {
@@ -224,7 +237,14 @@ mod tests {
             ],
             TriplePattern::parse("?x", "ancestor", "?z"),
         );
-        forward_chain(&[base, rec], vec![t("a", "parent", "b"), t("b", "parent", "c"), t("c", "parent", "d")])
+        forward_chain(
+            &[base, rec],
+            vec![
+                t("a", "parent", "b"),
+                t("b", "parent", "c"),
+                t("c", "parent", "d"),
+            ],
+        )
     }
 
     #[test]
@@ -235,7 +255,10 @@ mod tests {
         // grounded in seed parent facts only.
         assert!(prov.axioms.iter().all(|ax| ax.predicate == "parent"));
         // last step concludes the claim.
-        assert_eq!(prov.steps.last().unwrap().conclusion, t("a", "ancestor", "c"));
+        assert_eq!(
+            prov.steps.last().unwrap().conclusion,
+            t("a", "ancestor", "c")
+        );
         assert!(prov.step_count() >= 2, "a→ancestor→c needs ≥2 steps");
     }
 

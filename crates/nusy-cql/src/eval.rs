@@ -281,16 +281,26 @@ fn in_value_set(v: &Value, valueset: &str, store: &dyn FactStore) -> Result<Valu
                     other => {
                         return Err(EvalError::TypeError {
                             op: "in (value set)".to_string(),
-                            detail: format!("list element must be a Code, got {}", type_name(other)),
+                            detail: format!(
+                                "list element must be a Code, got {}",
+                                type_name(other)
+                            ),
                         });
                     }
                 }
             }
-            Ok(if saw_unknown { Value::Null } else { Value::Boolean(false) })
+            Ok(if saw_unknown {
+                Value::Null
+            } else {
+                Value::Boolean(false)
+            })
         }
         other => Err(EvalError::TypeError {
             op: "in (value set)".to_string(),
-            detail: format!("expected a Code or list of Codes on the left, got {}", type_name(other)),
+            detail: format!(
+                "expected a Code or list of Codes on the left, got {}",
+                type_name(other)
+            ),
         }),
     }
 }

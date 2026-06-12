@@ -78,7 +78,8 @@ fn arrow_path_gates_gold_cases_with_zero_materialization() {
 fn arrow_and_vec_paths_agree_on_every_gold_claim() {
     let _guard = COUNTER_GUARD.lock().unwrap_or_else(|e| e.into_inner());
     for fx in &gold_cases() {
-        let arrow = ProvableClaimGate::from_arrow(forward_chain_arrow(&fx.rules, fx.patient_facts.clone()));
+        let arrow =
+            ProvableClaimGate::from_arrow(forward_chain_arrow(&fx.rules, fx.patient_facts.clone()));
         let vec = ProvableClaimGate::new(forward_chain(&fx.rules, fx.patient_facts.clone()));
         for claim in fx
             .expected_recommendations

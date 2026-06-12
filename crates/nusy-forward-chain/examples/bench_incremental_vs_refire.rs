@@ -67,7 +67,10 @@ fn main() {
             .collect();
 
         let (mi, mr) = (median(inc), median(refire));
-        let closure = forward_chain_arrow(&rules, full_seed.clone()).facts().to_triples().len();
+        let closure = forward_chain_arrow(&rules, full_seed.clone())
+            .facts()
+            .to_triples()
+            .len();
         println!(
             "n={n:<3} closure={closure:<5}  incremental median={mi:>6} µs   full-refire median={mr:>6} µs   speedup={:.1}×",
             mr as f64 / mi.max(1) as f64
