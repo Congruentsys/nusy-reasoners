@@ -1,0 +1,23 @@
+[package]
+name = "nusy-reasoner-adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Conform the validated engines to the Reasoner contract: deductive (forward-chain, Proven), causal identification (do-calculus, Proven/Abstained), counterfactual (estimates, Heuristic) — VY-D E2, EX-4747"
+# Retired per Captain ruling SG-4717 / CH-4734.
+publish = false
+
+[dependencies]
+# The contract being conformed to (arrow-free; moves to nusy-reasoners with VY-C).
+nusy-reasoner = { path = "../nusy-reasoner" }
+# The engines being adapted. All Wave-1 FOSS-movable (V19-VOYAGES §3) — this crate
+# deliberately has NO nusy-arrow-core dependency; the store-backed path lives in
+# nusy-store-seam (product side).
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-reasoning-causal = { path = "../nusy-reasoning-causal" }
+nusy-unify = { path = "../nusy-unify" }
+
+[dev-dependencies]
+# Differential tests run the same gold cases the engines were validated on.
+nusy-clinical-fixtures = { path = "../nusy-clinical-fixtures" }
