@@ -3,6 +3,7 @@ name = "nusy-rule-compiler"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "Compile cortex-extracted rule clauses into computable Y2 — forward-chain rules (nusy-unify::Rule) and PlanDefinition decision graphs (nusy-plandef). The cortex→engine bridge that closes the V12 'rules = regex patterns' gap (VOY-V18-4, EX-4606)"
 
