@@ -7,6 +7,15 @@ license.workspace = true
 publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 
+[features]
+# CH-4752 / VY-C §3 split: the crate is a GENERIC do-calculus core; the clinical
+# safety policy (domain vocabulary + provenance floor + identifiability refusal) is
+# `clinical-policy`, ON by default so monorepo callers (nusy-gate, nusy-dual-store)
+# are unaffected. The FOSS extraction (nusy-reasoners, VY-C) depends with
+# `default-features = false` → the pure generic core, zero clinical content.
+default = ["clinical-policy"]
+clinical-policy = []
+
 [dependencies]
 arrow = { workspace = true }
 thiserror = { workspace = true }

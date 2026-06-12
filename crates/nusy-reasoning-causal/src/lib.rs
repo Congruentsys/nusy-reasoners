@@ -15,32 +15,44 @@
 //! certifiability gate that refuses queries when graph completeness is too
 //! low for reliable inference (see EX-3019 certifiability boundary).
 //!
-//! # Safety Routing (EX-4078)
+//! # Safety routing — `clinical-policy` feature (EX-4078, CH-4752 split)
 //!
-//! Safety-critical queries (clinical, medical, legal, financial domains and
-//! counterfactual queries) are routed through DoWhy identifiability verification.
-//! Unidentifiable queries are refused with zero false positives (H-4118).
-//! Non-critical queries use the fast path (CAC or symbolic pipeline).
+//! The generic core above carries **no domain policy**. Behind the
+//! **`clinical-policy`** feature (on by default; off in the FOSS extraction) sits an
+//! optional safety layer: it routes queries whose domain is in a configurable
+//! safety-critical set — or any counterfactual — through identifiability
+//! verification, refusing unidentifiable queries with zero false positives (H-4118),
+//! and applies a configurable provenance floor. The policy is **data**
+//! (`SafetyPolicy`), not hardcoded — see `safety_routing`. Build the pure generic
+//! core with `--no-default-features`.
 
+// ── Generic do-calculus core (always built; arrow-only; zero domain policy) ──
 pub mod adjustment;
-pub mod clinical_gate;
 pub mod counterfactual;
 pub mod error;
 pub mod graph;
 pub mod identifiability;
 pub mod intervention;
+
+// ── Clinical safety policy (CH-4752 feature gate; off in the FOSS extraction) ──
+#[cfg(feature = "clinical-policy")]
+pub mod clinical_gate;
+#[cfg(feature = "clinical-policy")]
 pub mod safety_routing;
 
 pub use adjustment::{AdjustmentResult, AdjustmentSet};
-pub use clinical_gate::{
-    ClinicalCausalGate, ClinicalGateSummary, ClinicalGateVerdict, ClinicalRefusalReason,
-};
 pub use counterfactual::{ConfidenceLevel, CounterfactualResult};
 pub use error::{CausalError, Result};
 pub use graph::{CausalDag, CausalEdge, NodeId};
 pub use identifiability::{IdentifiabilityVerification, IdentificationCriterion};
 pub use intervention::{InterventionEffect, InterventionResult};
+
+#[cfg(feature = "clinical-policy")]
+pub use clinical_gate::{
+    ClinicalCausalGate, ClinicalGateSummary, ClinicalGateVerdict, ClinicalRefusalReason,
+};
+#[cfg(feature = "clinical-policy")]
 pub use safety_routing::{
-    CausalQuery, PearlLevel, ProvenanceGateResult, RoutingPath, SafetyClassification,
+    CausalQuery, PearlLevel, ProvenanceGateResult, RoutingPath, SafetyClassification, SafetyPolicy,
     SafetyRoutingResult,
 };

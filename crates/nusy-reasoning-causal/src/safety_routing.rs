@@ -29,7 +29,8 @@ use crate::identifiability::{self, IdentifiabilityVerification};
 pub const CLINICAL_PROVENANCE_THRESHOLD: f64 = 0.95;
 
 /// Domains that are safety-critical — causal queries in these domains
-/// require formal identifiability verification.
+/// require formal identifiability verification. The clinical default for
+/// [`SafetyPolicy::clinical`]; routing logic reads the policy, not this const.
 pub const SAFETY_CRITICAL_DOMAINS: &[&str] = &[
     "clinical",
     "medical",
@@ -38,6 +39,45 @@ pub const SAFETY_CRITICAL_DOMAINS: &[&str] = &[
     "pharmaceutical",
     "diagnostic",
 ];
+
+/// The safety policy as **data** (CH-4752): which domains are safety-critical and the
+/// provenance floor they require. Extracted out of bare consts so a non-clinical
+/// deployment can supply its own set — the routing logic is generic over the policy,
+/// and the clinical values are merely the default ([`SafetyPolicy::clinical`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SafetyPolicy {
+    /// Domains whose causal queries require formal identifiability verification.
+    pub critical_domains: Vec<String>,
+    /// Provenance-validity floor `[0,1]` applied to safety-critical domains.
+    pub provenance_threshold: f64,
+}
+
+impl SafetyPolicy {
+    /// The clinical default policy — the historical CONCERN-6 values
+    /// ([`SAFETY_CRITICAL_DOMAINS`] + [`CLINICAL_PROVENANCE_THRESHOLD`]).
+    pub fn clinical() -> Self {
+        Self {
+            critical_domains: SAFETY_CRITICAL_DOMAINS
+                .iter()
+                .map(|d| d.to_string())
+                .collect(),
+            provenance_threshold: CLINICAL_PROVENANCE_THRESHOLD,
+        }
+    }
+
+    /// Is `domain` safety-critical under this policy? (Case-insensitive.)
+    pub fn is_critical_domain(&self, domain: &str) -> bool {
+        self.critical_domains
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(domain))
+    }
+}
+
+impl Default for SafetyPolicy {
+    fn default() -> Self {
+        Self::clinical()
+    }
+}
 
 /// Pearl's causal hierarchy levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,13 +166,18 @@ pub struct ProvenanceGateResult {
 ///
 /// All other queries are non-critical.
 pub fn classify_query(query: &CausalQuery) -> SafetyClassification {
+    classify_query_with(query, &SafetyPolicy::clinical())
+}
+
+/// Classify a query under an explicit [`SafetyPolicy`] (data-driven; CH-4752).
+pub fn classify_query_with(query: &CausalQuery, policy: &SafetyPolicy) -> SafetyClassification {
     // Rule 1: Counterfactual queries are always safety-critical
     if query.pearl_level == PearlLevel::Counterfactual {
         return SafetyClassification::SafetyCritical;
     }
 
     // Rule 2: Safety-critical domains require verification for interventional queries
-    if query.pearl_level == PearlLevel::Interventional && is_safety_critical_domain(&query.domain) {
+    if query.pearl_level == PearlLevel::Interventional && policy.is_critical_domain(&query.domain) {
         return SafetyClassification::SafetyCritical;
     }
 
@@ -141,11 +186,9 @@ pub fn classify_query(query: &CausalQuery) -> SafetyClassification {
     SafetyClassification::NonCritical
 }
 
-/// Check if a domain name is safety-critical.
+/// Check if a domain name is safety-critical under the clinical default policy.
 pub fn is_safety_critical_domain(domain: &str) -> bool {
-    SAFETY_CRITICAL_DOMAINS
-        .iter()
-        .any(|&d| d.eq_ignore_ascii_case(domain))
+    SafetyPolicy::clinical().is_critical_domain(domain)
 }
 
 /// Check the provenance gate for a query.
@@ -153,8 +196,16 @@ pub fn is_safety_critical_domain(domain: &str) -> bool {
 /// For clinical/safety-critical domains, provenance_validity must be ≥ 95%.
 /// For other domains, the gate always passes.
 pub fn check_provenance_gate(query: &CausalQuery) -> ProvenanceGateResult {
-    let threshold = if is_safety_critical_domain(&query.domain) {
-        CLINICAL_PROVENANCE_THRESHOLD
+    check_provenance_gate_with(query, &SafetyPolicy::clinical())
+}
+
+/// Check the provenance gate under an explicit [`SafetyPolicy`] (data-driven; CH-4752).
+pub fn check_provenance_gate_with(
+    query: &CausalQuery,
+    policy: &SafetyPolicy,
+) -> ProvenanceGateResult {
+    let threshold = if policy.is_critical_domain(&query.domain) {
+        policy.provenance_threshold
     } else {
         0.0 // No provenance requirement for non-critical domains
     };
@@ -186,10 +237,20 @@ pub fn check_provenance_gate(query: &CausalQuery) -> ProvenanceGateResult {
 /// - `Err(CausalError::NotIdentifiable)` — safety-critical query is unidentifiable
 /// - `Err(CausalError::ProvenanceGateFailed)` — provenance below threshold
 pub fn route_query(dag: &CausalDag, query: &CausalQuery) -> Result<SafetyRoutingResult> {
-    let classification = classify_query(query);
+    route_query_with(dag, query, &SafetyPolicy::clinical())
+}
+
+/// Route a query under an explicit [`SafetyPolicy`] (data-driven; CH-4752). The clinical
+/// behaviour is exactly `route_query_with(dag, query, &SafetyPolicy::clinical())`.
+pub fn route_query_with(
+    dag: &CausalDag,
+    query: &CausalQuery,
+    policy: &SafetyPolicy,
+) -> Result<SafetyRoutingResult> {
+    let classification = classify_query_with(query, policy);
 
     match classification {
-        SafetyClassification::SafetyCritical => route_safety_critical(dag, query),
+        SafetyClassification::SafetyCritical => route_safety_critical(dag, query, policy),
         SafetyClassification::NonCritical => Ok(SafetyRoutingResult {
             query: query.clone(),
             classification,
@@ -204,9 +265,13 @@ pub fn route_query(dag: &CausalDag, query: &CausalQuery) -> Result<SafetyRouting
 ///
 /// Step 1: Provenance gate (provenance_validity ≥ 95% for clinical domains)
 /// Step 2: DoWhy identifiability verification (refuses unidentifiable)
-fn route_safety_critical(dag: &CausalDag, query: &CausalQuery) -> Result<SafetyRoutingResult> {
+fn route_safety_critical(
+    dag: &CausalDag,
+    query: &CausalQuery,
+    policy: &SafetyPolicy,
+) -> Result<SafetyRoutingResult> {
     // Step 1: Provenance gate
-    let prov_gate = check_provenance_gate(query);
+    let prov_gate = check_provenance_gate_with(query, policy);
     if !prov_gate.passed {
         return Err(CausalError::ProvenanceGateFailed {
             domain: query.domain.clone(),
