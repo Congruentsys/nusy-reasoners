@@ -3,6 +3,7 @@ name = "nusy-plandef"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "PlanDefinition-analog decision graph: $apply a parameterized guideline against patient facts → grounded ActionProposals with an evidence chain (VOY-V18-2, EX-4597)"
 

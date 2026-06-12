@@ -3,6 +3,7 @@ name = "nusy-gate"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "The provable-claim gate: a claim provable in the executable Y-graph is answered symbolically with its proof; otherwise it is flagged unproven and routed to the neural layer — never silently asserted (VOY-V18-5, EX-4610)"
 

@@ -3,6 +3,7 @@ name = "nusy-clinical-fixtures"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "Executable clinical-guideline fixture harness: patient facts → computable rules → derived recommendations + contraindications + proof paths + negative controls. The VOY-6 gold-case set (EX-4615)."
 

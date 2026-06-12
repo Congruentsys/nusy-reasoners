@@ -3,6 +3,7 @@ name = "nusy-forward-chain"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "Forward-chaining inference engine: iterate Y2 rules over Y1 triples to a fixpoint, with per-fact derivation provenance (VOY-V18-1, EX-4588)"
 

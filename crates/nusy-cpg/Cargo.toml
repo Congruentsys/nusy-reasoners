@@ -3,6 +3,7 @@ name = "nusy-cpg"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "One real clinical practice guideline (JNC8 hypertension) imported into computable PlanDefinition form (VOY-V18-2, EX-4599)"
 
