@@ -2,17 +2,15 @@
 //! the license and governance files the Wave-1 code will land into. This crate is
 //! deleted when the first real crate moves in — its tests migrate to that crate's CI.
 
-/// Repository root, resolved from this crate's manifest.
-fn repo_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root resolves")
-}
-
 #[cfg(test)]
 mod tests {
-    use super::repo_root;
+    /// Repository root, resolved from this crate's manifest.
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root resolves")
+    }
 
     fn read(rel: &str) -> String {
         std::fs::read_to_string(repo_root().join(rel))
