@@ -1,0 +1,18 @@
+# nusy-reasoners — proof-carrying reasoning engines over Arrow.
+#
+# Wave-1 crates arrive from the NuSy monorepo as a MOVE (history-preserving),
+# not a mirror: nusy-unify, nusy-forward-chain, nusy-provenance, nusy-gate,
+# nusy-router, nusy-reasoning-causal (generic core), nusy-cql, nusy-cpg,
+# nusy-cog-computable, nusy-reasoner (the contract), nusy-reasoner-adapters.
+# Until that move lands, this workspace is deliberately empty scaffolding so
+# CI, licensing, and governance are proven before code arrives.
+
+[workspace]
+members = []
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Congruentsys/nusy-reasoners"
