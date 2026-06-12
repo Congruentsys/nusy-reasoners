@@ -216,6 +216,39 @@ pub struct ApplyOutcome {
     pub suppressed: Vec<Suppression>,
 }
 
+impl ApplyOutcome {
+    /// Project the fired contraindications into **first-class, queryable triples** — the
+    /// EX-4692 "explicit negative, not structural absence" representation. Each suppressed
+    /// prohibition yields:
+    /// - `(plan_id, "contraindicates", action_id)` — the negative recommendation as a fact a
+    ///   query can return (never silence);
+    /// - `(action_id, "contraindicatedWhen", condition)` for each evidence condition — the
+    ///   provenance of *why* the contraindication applies.
+    ///
+    /// Returned as representation-agnostic `(subject, predicate, object)` string triples so a
+    /// caller materializes them into the store (`nusy-arrow-core`) or the engine
+    /// (`nusy-unify`) without coupling the decision-graph layer to either. These are the
+    /// queryable defeaters the defeasible reasoner (VY-F) consumes as input.
+    pub fn contraindication_triples(&self, plan_id: &str) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        for s in &self.suppressed {
+            out.push((
+                plan_id.to_string(),
+                "contraindicates".to_string(),
+                s.action.id.clone(),
+            ));
+            for cond in &s.evidence {
+                out.push((
+                    s.action.id.clone(),
+                    "contraindicatedWhen".to_string(),
+                    cond.clone(),
+                ));
+            }
+        }
+        out
+    }
+}
+
 /// Three-valued applicability of a node, from its condition.
 enum Applicability {
     Yes,

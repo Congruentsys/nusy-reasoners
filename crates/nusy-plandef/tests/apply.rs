@@ -180,3 +180,35 @@ fn prohibition_under_unknown_condition_abstains_not_suppresses() {
     assert_eq!(out.abstained[0].action.id, "add-arb");
     assert!(out.proposed.is_empty());
 }
+
+#[test]
+fn fired_contraindication_projects_to_queryable_triples() {
+    // EX-4692 Phase 1b: an applicable prohibition lands as first-class triples
+    // (`<plan> contraindicates <action>` + provenance), never structural absence.
+    let store = MapStore::default().set("Patient.onAceInhibitor", Value::Boolean(true));
+    let out = apply(&contraindication_plan(), &store).unwrap();
+    let triples = out.contraindication_triples("acei-arb-guard");
+
+    assert!(
+        triples.contains(&(
+            "acei-arb-guard".to_string(),
+            "contraindicates".to_string(),
+            "add-arb".to_string()
+        )),
+        "the negative recommendation is a queryable fact, got {triples:?}"
+    );
+    // Provenance: why the contraindication applies.
+    assert!(triples.contains(&(
+        "add-arb".to_string(),
+        "contraindicatedWhen".to_string(),
+        "Patient.onAceInhibitor = true".to_string()
+    )));
+}
+
+#[test]
+fn no_contraindication_triples_when_nothing_suppressed() {
+    // A non-applicable prohibition produces no negative facts (no false defeaters).
+    let store = MapStore::default().set("Patient.onAceInhibitor", Value::Boolean(false));
+    let out = apply(&contraindication_plan(), &store).unwrap();
+    assert!(out.contraindication_triples("acei-arb-guard").is_empty());
+}
