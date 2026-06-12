@@ -190,7 +190,11 @@ fn every_derived_governance_fact_has_a_complete_proof() {
     // The two-hop blockage proof actually chains through the derived premise:
     // blocked(prop6) ← dep-block-base ← blocked(prop5) ← dep-block-base ← blocked(prop4).
     let p6 = sat.proof_of(&t("prop6", "blocked", "true")).unwrap();
-    assert!(p6.depth() >= 3, "expected a multi-hop proof, got {}", p6.depth());
+    assert!(
+        p6.depth() >= 3,
+        "expected a multi-hop proof, got {}",
+        p6.depth()
+    );
     assert!(p6.rule_ids().contains(&"dep-block-base"));
     assert!(p6.rule_ids().contains(&"unresolved-blocks"));
 }

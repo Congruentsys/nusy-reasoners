@@ -31,7 +31,11 @@ fn rules() -> Vec<IdRule> {
                     TriplePattern::parse("?p", "authored_by", "?a"),
                     TriplePattern::parse("?p", "has_approval", "?a"),
                 ],
-                vec![TriplePattern::parse("?p", "violates_policy", "self-approval")],
+                vec![TriplePattern::parse(
+                    "?p",
+                    "violates_policy",
+                    "self-approval",
+                )],
             ),
         ),
         IdRule::new(
