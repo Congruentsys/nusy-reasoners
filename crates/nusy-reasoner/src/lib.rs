@@ -53,6 +53,9 @@
 //! assert_eq!(neural.provability(), Provability::Heuristic);
 //! ```
 
+pub mod compose;
+pub use compose::{Pipeline, provability_min};
+
 use nusy_unify::Triple;
 
 /// What a reasoner runs on: a goal claim plus the relevant graph slice (facts/rules/ontology),
