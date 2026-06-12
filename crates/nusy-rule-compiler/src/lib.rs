@@ -168,6 +168,11 @@ pub struct PlanClause {
     pub action_id: String,
     /// Recommended action title (becomes `Action::title`).
     pub action_title: String,
+    /// EX-4692: FHIR `doNotPerform` — `true` compiles to a prohibition
+    /// (`Action.do_not_perform`), surfaced as suppressed-by-contraindication in `apply`.
+    /// Defaults `false`; existing constructors set it via `..Default::default()` or the
+    /// field directly.
+    pub do_not_perform: bool,
 }
 
 impl PlanClause {
@@ -185,7 +190,15 @@ impl PlanClause {
             condition_cql: condition_cql.into(),
             action_id: action_id.into(),
             action_title: action_title.into(),
+            do_not_perform: false,
         }
+    }
+
+    /// Mark this clause a prohibition (FHIR `doNotPerform`) — compiles to a
+    /// suppressed-by-contraindication action. EX-4692.
+    pub fn do_not_perform(mut self) -> Self {
+        self.do_not_perform = true;
+        self
     }
 }
 
@@ -226,14 +239,12 @@ pub fn compile_plan(clause: &PlanClause) -> Result<PlanDefinition, CompileError>
         id: clause.id.clone(),
         message: e.to_string(),
     })?;
-    Ok(
-        PlanDefinition::new(clause.id.clone(), clause.title.clone()).with_action(
-            PlanAction::when(clause.condition_cql.clone()).recommend(Action::new(
-                clause.action_id.clone(),
-                clause.action_title.clone(),
-            )),
-        ),
-    )
+    // EX-4692: a doNotPerform clause compiles to a prohibition Action — when its condition
+    // holds, apply() surfaces it as suppressed-by-contraindication (not proposed).
+    let mut action = Action::new(clause.action_id.clone(), clause.action_title.clone());
+    action.do_not_perform = clause.do_not_perform;
+    Ok(PlanDefinition::new(clause.id.clone(), clause.title.clone())
+        .with_action(PlanAction::when(clause.condition_cql.clone()).recommend(action)))
 }
 
 /// Compile a batch of clauses and value-sets into a [`ComputableY2`] bundle, ready for
@@ -394,6 +405,28 @@ mod tests {
         let action = node.action.as_ref().expect("has action");
         assert_eq!(action.id, "assess-fall-risk");
         assert_eq!(action.title, "Assess fall risk");
+        assert!(!action.do_not_perform, "default clause is a recommendation");
+    }
+
+    #[test]
+    fn do_not_perform_clause_compiles_to_a_prohibition_action() {
+        // EX-4692: a doNotPerform clause compiles to Action.do_not_perform=true, so apply()
+        // surfaces it as suppressed-by-contraindication (verified in nusy-plandef tests).
+        let clause = PlanClause::new(
+            "acei-arb-guard",
+            "ACEI+ARB combination guard",
+            "Patient.onAceInhibitor = true",
+            "add-arb",
+            "Add an ARB",
+        )
+        .do_not_perform();
+        let plan = compile_plan(&clause).expect("compiles");
+        let action = plan.actions[0].action.as_ref().expect("has action");
+        assert!(
+            action.do_not_perform,
+            "doNotPerform clause must compile to a prohibition"
+        );
+        assert_eq!(action.id, "add-arb");
     }
 
     #[test]
