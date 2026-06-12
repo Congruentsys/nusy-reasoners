@@ -48,7 +48,13 @@ use nusy_cql::{CqlError, FactStore, Value, evaluate};
 pub use nusy_cql::Code;
 
 /// A recommended action — the ActivityDefinition analog (what to do if it fires).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `do_not_perform` (EX-4692) ports FHIR R4 `PlanDefinition.action.doNotPerform` /
+/// Paper-128's `ActionProposal.do_not_perform`: when `true` this is a **prohibition**
+/// ("do NOT do X when applicable"), not a recommendation. An applicable do-not-perform
+/// action is *suppressed-by-contraindication* in [`apply`] — an explicit negative with
+/// provenance, never proposed and never silently dropped. Default `false`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Action {
     /// Stable action identifier.
     pub id: String,
@@ -56,15 +62,18 @@ pub struct Action {
     pub title: String,
     /// Optional terminology code for the action (procedure / medication / …).
     pub code: Option<Code>,
+    /// EX-4692: FHIR `doNotPerform` — `true` marks this a contraindication/prohibition.
+    pub do_not_perform: bool,
 }
 
 impl Action {
-    /// A coded-later action with an id and title.
+    /// A coded-later action with an id and title (`do_not_perform` defaults `false`).
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
             code: None,
+            do_not_perform: false,
         }
     }
 
@@ -72,6 +81,18 @@ impl Action {
     pub fn with_code(mut self, code: Code) -> Self {
         self.code = Some(code);
         self
+    }
+
+    /// Mark this action a prohibition (FHIR `doNotPerform=true`) — when applicable it is
+    /// suppressed-by-contraindication, not proposed. EX-4692.
+    pub fn do_not_perform(mut self) -> Self {
+        self.do_not_perform = true;
+        self
+    }
+
+    /// True iff this action is a prohibition (contraindication).
+    pub fn is_contraindication(&self) -> bool {
+        self.do_not_perform
     }
 }
 
@@ -167,14 +188,32 @@ pub struct Abstention {
     pub reason: String,
 }
 
-/// The result of `$apply`: actions provably applicable, and actions whose applicability is
-/// unknown (abstained — never silently dropped).
+/// A **contraindication that fired** (EX-4692): a `do_not_perform` action whose guarding
+/// conditions held, so the explicit negative applies — "do NOT do X, because …". This is the
+/// positive representation of negative knowledge: an applicable prohibition is surfaced here
+/// (with its provenance), never proposed and never silently dropped. A contraindication query
+/// returns this, not silence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suppression {
+    /// The prohibited action (its `do_not_perform` flag is `true`).
+    pub action: Action,
+    /// The conditions (root → action) that held — the prohibition's mini-proof, i.e. *why*
+    /// the contraindication applies.
+    pub evidence: Vec<String>,
+}
+
+/// The result of `$apply`: actions provably applicable (proposed), actions whose applicability
+/// is unknown (abstained — never silently dropped), and applicable prohibitions
+/// (suppressed-by-contraindication — explicit negatives with provenance). EX-4692.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ApplyOutcome {
     /// Provably-applicable recommendations, each with its evidence chain.
     pub proposed: Vec<ActionProposal>,
     /// Actions left undecided because a guarding condition was unknown.
     pub abstained: Vec<Abstention>,
+    /// Applicable `do_not_perform` prohibitions — the explicit negatives that fired,
+    /// each with the provenance of why the contraindication applies. EX-4692.
+    pub suppressed: Vec<Suppression>,
 }
 
 /// Three-valued applicability of a node, from its condition.
@@ -241,10 +280,19 @@ fn walk(
                 evidence.push(src.clone());
             }
             if let Some(action) = &node.action {
-                out.proposed.push(ActionProposal {
-                    action: action.clone(),
-                    evidence: evidence.clone(),
-                });
+                if action.do_not_perform {
+                    // EX-4692: an applicable prohibition is an explicit negative — surface it
+                    // as suppressed-by-contraindication (with provenance), not proposed.
+                    out.suppressed.push(Suppression {
+                        action: action.clone(),
+                        evidence: evidence.clone(),
+                    });
+                } else {
+                    out.proposed.push(ActionProposal {
+                        action: action.clone(),
+                        evidence: evidence.clone(),
+                    });
+                }
             }
             for sub in &node.sub_actions {
                 walk(sub, store, evidence, out)?;

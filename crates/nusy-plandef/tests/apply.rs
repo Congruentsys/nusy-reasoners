@@ -114,3 +114,69 @@ fn a_condition_that_fails_to_parse_is_an_error() {
         .with_action(PlanAction::when("Patient.age >= ").recommend(Action::new("x", "X")));
     assert!(apply(&plan, &MapStore::default()).is_err());
 }
+
+// ── EX-4692: negative knowledge — suppressed-by-contraindication ────────────────
+
+/// A plan whose action is a prohibition (do_not_perform), gated on a risk condition:
+/// "do NOT prescribe the combination when the patient is already on an ACE inhibitor."
+fn contraindication_plan() -> PlanDefinition {
+    PlanDefinition::new("acei-arb-guard", "ACEI+ARB combination guard").with_action(
+        PlanAction::when("Patient.onAceInhibitor = true")
+            .recommend(Action::new("add-arb", "Add an ARB").do_not_perform()),
+    )
+}
+
+#[test]
+fn applicable_prohibition_is_suppressed_not_proposed() {
+    // EX-4692: the contraindication's condition holds → it is an explicit negative that fired.
+    let store = MapStore::default().set("Patient.onAceInhibitor", Value::Boolean(true));
+    let out = apply(&contraindication_plan(), &store).unwrap();
+
+    assert!(
+        out.proposed.is_empty(),
+        "a prohibition must never be proposed"
+    );
+    assert!(out.abstained.is_empty());
+    assert_eq!(
+        out.suppressed.len(),
+        1,
+        "applicable prohibition surfaces as suppressed"
+    );
+    let s = &out.suppressed[0];
+    assert_eq!(s.action.id, "add-arb");
+    assert!(s.action.do_not_perform);
+    // Carries the provenance of WHY the contraindication applies — never silence.
+    assert_eq!(s.evidence, vec!["Patient.onAceInhibitor = true"]);
+}
+
+#[test]
+fn prohibition_with_false_condition_does_not_fire() {
+    // Not on an ACE inhibitor → the prohibition does not apply; nothing fires.
+    let store = MapStore::default().set("Patient.onAceInhibitor", Value::Boolean(false));
+    let out = apply(&contraindication_plan(), &store).unwrap();
+    assert!(out.proposed.is_empty());
+    assert!(
+        out.suppressed.is_empty(),
+        "a non-applicable prohibition is not a finding"
+    );
+    assert!(out.abstained.is_empty());
+}
+
+#[test]
+fn prohibition_under_unknown_condition_abstains_not_suppresses() {
+    // EX-4692: applicability unknown (missing data) → abstain, distinct from suppression.
+    // A contraindication we cannot establish must not masquerade as one that fired.
+    let store = MapStore::default(); // Patient.onAceInhibitor unknown
+    let out = apply(&contraindication_plan(), &store).unwrap();
+    assert!(
+        out.suppressed.is_empty(),
+        "unknown applicability is not a fired contraindication"
+    );
+    assert_eq!(
+        out.abstained.len(),
+        1,
+        "unknown-applicability prohibition abstains"
+    );
+    assert_eq!(out.abstained[0].action.id, "add-arb");
+    assert!(out.proposed.is_empty());
+}
