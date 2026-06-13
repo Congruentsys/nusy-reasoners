@@ -1,0 +1,19 @@
+[package]
+name = "nusy-bayesian-battery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+description = "VY-Bayes acceptance battery (EX-4819): hand-computed GRADE + posterior fidelity, abduction top-1 (Bayesian vs parsimony), and proof-purity (no probabilistic link is ever Proven)"
+
+[dependencies]
+# Arrow-free, top of the VY-Bayes pyramid — engine (E1) + reasoner (E2) + the abductive
+# rank upgrade (E3, in nusy-abduction-rank). No product/arrow deps (FOSS-extractable).
+nusy-unify = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-bayesian = { path = "../nusy-bayesian" }
+nusy-abduction = { path = "../nusy-abduction" }
+nusy-abduction-test = { path = "../nusy-abduction-test" }
+nusy-abduction-rank = { path = "../nusy-abduction-rank" }
