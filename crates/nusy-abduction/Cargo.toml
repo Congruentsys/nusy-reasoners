@@ -1,0 +1,13 @@
+[package]
+name = "nusy-abduction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Abductive hypothesis generation — symbolic rule-reversal enumeration + a flagged neural-propose interface, behind the Reasoner contract (EX-4775, VY-E E1)"
+
+[dependencies]
+nusy-unify        = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-reasoner     = { path = "../nusy-reasoner" }
