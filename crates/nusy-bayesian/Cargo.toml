@@ -1,0 +1,16 @@
+[package]
+name = "nusy-bayesian"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "VY-Bayes E1 — probabilistic (Bayesian) inference + GRADE-style certainty aggregation. Arrow-free generic engine (the product adapts its Certainty rows in); a probabilistic answer is Heuristic by construction — it is ranked, never proven."
+
+[dependencies]
+# Arrow-free + product-free, like the sibling reasoner crates (nusy-abduction-rank et al.):
+# the Bayesian reasoner must stay extractable into the nusy-reasoners FOSS suite, so it
+# operates over a GENERIC evidence model and never depends on nusy-arrow-core's store.
+# (E2 adds nusy-reasoner to conform to the Reasoner contract; E1 is the pure engine.)
+
+[dev-dependencies]
