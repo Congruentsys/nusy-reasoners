@@ -47,12 +47,17 @@ fn par_is_one_and_false_proofs_zero_on_the_clinical_gold_panel() {
         );
         assert_eq!(report.silent_drops, 0, "{}: silent drop", fx.name);
         assert_eq!(
-            report.missed, 0,
+            report.missed,
+            0,
             "{}: an expected recommendation failed to prove through the router (PAR {})",
             fx.name,
             report.par()
         );
-        assert!((report.par() - 1.0).abs() < 1e-9, "{}: PAR regressed", fx.name);
+        assert!(
+            (report.par() - 1.0).abs() < 1e-9,
+            "{}: PAR regressed",
+            fx.name
+        );
     }
     assert!(
         total_expected > 0,

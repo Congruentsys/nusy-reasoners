@@ -460,9 +460,9 @@ mod tests {
         let mut router = ReasonerRouter::new();
         router.push(Box::new(ToySymbolic));
         let panel = vec![
-            (q("p1", "at_risk", "fall"), true),    // provable, expected
-            (q("p2", "at_risk", "fall"), true),    // provable, expected
-            (q("p1", "at_risk", "stroke"), false), // must NOT prove
+            (q("p1", "at_risk", "fall"), true),         // provable, expected
+            (q("p2", "at_risk", "fall"), true),         // provable, expected
+            (q("p1", "at_risk", "stroke"), false),      // must NOT prove
             (q("p1", "weather_today", "sunny"), false), // uncovered, must not prove
         ];
         let report = router.par(&panel);
