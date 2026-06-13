@@ -1,0 +1,14 @@
+[package]
+name = "nusy-cql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "CQL-analog expression language: computable boolean/temporal/subsumption logic over the Y-graph (VOY-V18-2)"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# (none — the crate is self-contained; tests use an in-memory FactStore stub)

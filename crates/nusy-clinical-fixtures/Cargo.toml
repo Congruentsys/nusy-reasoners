@@ -1,0 +1,22 @@
+[package]
+name = "nusy-clinical-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Executable clinical-guideline fixture harness: patient facts → computable rules → derived recommendations + contraindications + proof paths + negative controls. The VOY-6 gold-case set (EX-4615)."
+
+[dependencies]
+# Exercises the VOY-1 derivation stack end-to-end on clinical cases.
+nusy-unify = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+
+[dev-dependencies]
+# The EXPR-4578.3 eval example checks surfaced provenance groundedness.
+nusy-provenance = { path = "../nusy-provenance" }
+# Zero-copy-adoption integration test (EX-4671): drives gold cases through the
+# engine → provenance → gate on the Arrow path. The materialization-counter feature
+# lets the test assert the Arrow hot path never materializes a Vec saturation.
+nusy-gate = { path = "../nusy-gate" }
+nusy-forward-chain = { path = "../nusy-forward-chain", features = ["materialization-counter"] }

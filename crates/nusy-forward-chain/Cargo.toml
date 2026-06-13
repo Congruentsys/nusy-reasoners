@@ -1,0 +1,22 @@
+[package]
+name = "nusy-forward-chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Forward-chaining inference engine: iterate Y2 rules over Y1 triples to a fixpoint, with per-fact derivation provenance (VOY-V18-1, EX-4588)"
+
+[dependencies]
+# Builds on the unification / rule-matching primitive. The proof-trace layer
+# (EX-4592) consumes the provenance this engine records.
+nusy-unify = { path = "../nusy-unify" }
+# Arrow substrate for the engine (EX-4668, VY-4667): TripleBatch / DerivationBatch
+# schemas and converters live in src/batch.rs.
+arrow = { workspace = true }
+
+[features]
+# Test-only instrumentation (EX-4671): counts crossings of the Arrow→Vec
+# materialization boundary so zero-copy-adoption tests can assert the Arrow hot
+# path never materializes a `Vec<Triple>` saturation. Off in production builds.
+materialization-counter = []

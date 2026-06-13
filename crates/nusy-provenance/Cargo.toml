@@ -1,0 +1,13 @@
+[package]
+name = "nusy-provenance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Provenance surfacing: flatten a derivation proof tree into a citable chain for a gated answer (VOY-V18-5, EX-4612)"
+
+[dependencies]
+# Surfaces the proof tree (EX-4592) the engine (EX-4588) produces.
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-unify = { path = "../nusy-unify" }

@@ -1,0 +1,15 @@
+[package]
+name = "nusy-reasoner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+description = "The Reasoner contract (VY-D/EX-4746): query → answer + proof + provability + provenance. The single trait every NuSy reasoner implements; arrow-free for the FOSS reasoner suite."
+
+[dependencies]
+# Arrow-free BY DESIGN (constraint: this crate moves to nusy-reasoners, the FOSS
+# suite, so it must not depend on arrow-core or the engine). nusy-unify is pure
+# term algebra (no workspace deps) — the one dependency that keeps Triple shared
+# without pulling Arrow.
+nusy-unify = { path = "../nusy-unify" }

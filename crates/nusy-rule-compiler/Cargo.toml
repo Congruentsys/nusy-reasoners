@@ -1,0 +1,22 @@
+[package]
+name = "nusy-rule-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Compile cortex-extracted rule clauses into computable Y2 — forward-chain rules (nusy-unify::Rule) and PlanDefinition decision graphs (nusy-plandef). The cortex→engine bridge that closes the V12 'rules = regex patterns' gap (VOY-V18-4, EX-4606)"
+
+[dependencies]
+# The forward-chain rule shape and its rule-id wrapper.
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+# Triple / TriplePattern / Rule term model.
+nusy-unify = { path = "../nusy-unify" }
+# PlanDefinition decision graphs.
+nusy-plandef = { path = "../nusy-plandef" }
+# CQL-analog condition source validation (parse-only — no FactStore is required here).
+nusy-cql = { path = "../nusy-cql" }
+# Output bundle for COG transfer (so a being can carry compiled Y2 over Y0 channels).
+nusy-cog-computable = { path = "../nusy-cog-computable" }
+# Structured error type.
+thiserror = { workspace = true }
