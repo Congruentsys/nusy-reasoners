@@ -1,18 +1,50 @@
-# nusy-reasoners — proof-carrying reasoning engines over Arrow.
+# nusy-reasoners — the proof-carrying reasoner suite (NuSy LRM, V19 / VY-C).
 #
-# Wave-1 crates arrive from the NuSy monorepo as a MOVE (history-preserving),
-# not a mirror: nusy-unify, nusy-forward-chain, nusy-provenance, nusy-gate,
-# nusy-router, nusy-reasoning-causal (generic core), nusy-cql, nusy-cpg,
-# nusy-cog-computable, nusy-reasoner (the contract), nusy-reasoner-adapters.
-# Until that move lands, this workspace is deliberately empty scaffolding so
-# CI, licensing, and governance are proven before code arrives.
+# Wave-1 moved here history-preserving from the NuSy monorepo (VY-C E3): the generic
+# reasoner primitives (unify, forward-chain, provenance, gate, router), the CQL-analog
+# expression layer + PlanDefinition apply (cql, plandef, cog-computable, rule-compiler),
+# the Reasoner contract + adapters, and the generic do-calculus core (reasoning-causal,
+# clinical policy stripped per §3). nusy-cpg / nusy-clinical-fixtures ship as the
+# regression-fixture examples. The product memory store stays private (FOSS v0.2, VY-K);
+# standalone users get nusy_cql::MemFactStore as the reference store.
 
 [workspace]
-members = ["crates/repo-invariants"]
 resolver = "2"
+members = [
+    "crates/nusy-unify",
+    "crates/nusy-forward-chain",
+    "crates/nusy-provenance",
+    "crates/nusy-gate",
+    "crates/nusy-router",
+    "crates/nusy-cql",
+    "crates/nusy-plandef",
+    "crates/nusy-cog-computable",
+    "crates/nusy-rule-compiler",
+    "crates/nusy-reasoner",
+    "crates/nusy-reasoner-adapters",
+    "crates/nusy-reasoning-causal",
+    "crates/nusy-cpg",
+    "crates/nusy-clinical-fixtures",
+    "crates/repo-invariants",
+]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Congruentsys/nusy-reasoners"
+
+[workspace.dependencies]
+arrow = { version = "57", features = ["prettyprint"] }
+parquet = { version = "57", features = ["arrow"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"

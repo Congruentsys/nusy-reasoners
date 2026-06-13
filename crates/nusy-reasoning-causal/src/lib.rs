@@ -34,11 +34,8 @@ pub mod graph;
 pub mod identifiability;
 pub mod intervention;
 
-// ── Clinical safety policy (CH-4752 feature gate; off in the FOSS extraction) ──
-#[cfg(feature = "clinical-policy")]
-pub mod clinical_gate;
-#[cfg(feature = "clinical-policy")]
-pub mod safety_routing;
+// Clinical safety policy (clinical_gate / safety_routing) stays product-side per the
+// V19-VOYAGES §3 disposition — the FOSS extraction is the pure generic do-calculus core.
 
 pub use adjustment::{AdjustmentResult, AdjustmentSet};
 pub use counterfactual::{ConfidenceLevel, CounterfactualResult};
@@ -46,13 +43,3 @@ pub use error::{CausalError, Result};
 pub use graph::{CausalDag, CausalEdge, NodeId};
 pub use identifiability::{IdentifiabilityVerification, IdentificationCriterion};
 pub use intervention::{InterventionEffect, InterventionResult};
-
-#[cfg(feature = "clinical-policy")]
-pub use clinical_gate::{
-    ClinicalCausalGate, ClinicalGateSummary, ClinicalGateVerdict, ClinicalRefusalReason,
-};
-#[cfg(feature = "clinical-policy")]
-pub use safety_routing::{
-    CausalQuery, PearlLevel, ProvenanceGateResult, RoutingPath, SafetyClassification, SafetyPolicy,
-    SafetyRoutingResult,
-};
