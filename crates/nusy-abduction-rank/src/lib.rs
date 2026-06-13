@@ -259,15 +259,23 @@ impl<S: CandidateSource> Reasoner for Abducer<S> {
         let combined = provability_min(&[h_entails_e, Provability::Heuristic]);
         debug_assert_eq!(combined, Provability::Heuristic);
 
+        // CH-4801 (credit: Air, from the closed-duplicate PROP-2740): stage-tag each
+        // trace line in pipeline order so propose → test → rank is auditable from the
+        // answer alone. The bare substrings ("rule_chain=", "H⊢E=", "assumed_count=")
+        // are preserved as suffixes, so downstream consumers (the EX-4778 battery's
+        // stage-threading assertions) keep matching.
         let mut why: Vec<String> = ground.iter().map(triple_key).collect();
-        why.push(format!("assumed_count={}", top.score.assumed_count));
         why.push(format!(
-            "rule_chain={}",
+            "propose: rule_chain={}",
             top.hypothesis.provenance.join("->")
         ));
         why.push(format!(
-            "H⊢E={:?}; abductive_provability={:?}",
+            "test: H⊢E={:?}; abductive_provability={:?}",
             h_entails_e, combined
+        ));
+        why.push(format!(
+            "rank: assumed_count={} prior={:.3}",
+            top.score.assumed_count, top.score.prior
         ));
 
         // Evidence trace (not a Derivation) → provability() computes Heuristic. The
