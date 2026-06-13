@@ -1,0 +1,18 @@
+[package]
+name = "nusy-abduction-battery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+description = "VY-E acceptance battery (EX-4778): abductive fixtures through generate→test→rank — gold explanation ranks first, the no-explanation case abstains loudly, every composite trace threads the three stages"
+
+[dependencies]
+# Arrow-free, like the rest of the abductive stack — the battery is the top of the
+# VY-E pyramid (generate→test→rank) and depends only on those three crates + the engine.
+nusy-unify = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-abduction = { path = "../nusy-abduction" }
+nusy-abduction-test = { path = "../nusy-abduction-test" }
+nusy-abduction-rank = { path = "../nusy-abduction-rank" }
