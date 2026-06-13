@@ -1,0 +1,18 @@
+[package]
+name = "nusy-abduction-rank"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "VY-E E3 — ranks abductive survivors (parsimony + prior) and composes generate→test→rank into the Abducer, a Reasoner whose answer is the best explanation (Heuristic by construction — abduction infers, it never proves)"
+
+[dependencies]
+# Arrow-free, like its upstream siblings: the abductive stack must stay extractable
+# into the nusy-reasoners FOSS workspace, so this crate depends only on the engine
+# trait layer and the two abduction crates — never on nusy-arrow-core.
+nusy-unify = { path = "../nusy-unify" }
+nusy-forward-chain = { path = "../nusy-forward-chain" }
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-abduction = { path = "../nusy-abduction" }
+nusy-abduction-test = { path = "../nusy-abduction-test" }
