@@ -11,6 +11,9 @@ description = "VY-Bayes E1 — probabilistic (Bayesian) inference + GRADE-style 
 # Arrow-free + product-free, like the sibling reasoner crates (nusy-abduction-rank et al.):
 # the Bayesian reasoner must stay extractable into the nusy-reasoners FOSS suite, so it
 # operates over a GENERIC evidence model and never depends on nusy-arrow-core's store.
-# (E2 adds nusy-reasoner to conform to the Reasoner contract; E1 is the pure engine.)
+# EX-4817 (E2): conform to the VY-D Reasoner contract — the trait crate is arrow-free and
+# FOSS-bound too, so this keeps the whole stack extractable.
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-unify = { path = "../nusy-unify" }
 
 [dev-dependencies]

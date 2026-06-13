@@ -47,9 +47,11 @@
 
 mod bayes;
 mod grade;
+mod reasoner; // EX-4817 (E2): Reasoner-contract conformance.
 
 pub use bayes::{BayesError, BayesianUpdate, Hypothesis, Likelihood, Posterior};
 pub use grade::{Aggregate, EvidenceRating, RatingSystem, directness_factor};
+pub use reasoner::BayesianReasoner;
 
 /// Build a Bayesian prior over candidate hypotheses from their aggregated certainty.
 ///
