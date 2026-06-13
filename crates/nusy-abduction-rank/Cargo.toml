@@ -16,3 +16,4 @@ nusy-forward-chain = { path = "../nusy-forward-chain" }
 nusy-reasoner = { path = "../nusy-reasoner" }
 nusy-abduction = { path = "../nusy-abduction" }
 nusy-abduction-test = { path = "../nusy-abduction-test" }
+nusy-bayesian = { path = "../nusy-bayesian" }  # EX-4818: Bayesian posterior ranking
