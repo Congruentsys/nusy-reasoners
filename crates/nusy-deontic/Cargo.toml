@@ -1,0 +1,12 @@
+[package]
+name = "nusy-deontic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+nusy-unify = { path = "../nusy-unify" }
+nusy-reasoner = { path = "../nusy-reasoner" }
+thiserror = { workspace = true }
