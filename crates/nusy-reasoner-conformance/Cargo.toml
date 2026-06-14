@@ -1,0 +1,18 @@
+[package]
+name = "nusy-reasoner-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Wave-3 reasoner conformance + router registration (VY-B E4, EX-4890): wires the inductive / analogical / case-based reasoners onto the ReasonerRouter via their competence envelopes, and proves they conform to the Reasoner contract — object-safe, route correctly, never launder a Heuristic to Proven, and reuse the min-guarantee Pipeline."
+
+[dependencies]
+nusy-reasoner   = { path = "../nusy-reasoner" }
+nusy-router     = { path = "../nusy-router" }
+nusy-inductive  = { path = "../nusy-inductive" }
+nusy-analogical = { path = "../nusy-analogical" }
+nusy-case-based = { path = "../nusy-case-based" }
+
+[dev-dependencies]
+nusy-unify = { path = "../nusy-unify" }
