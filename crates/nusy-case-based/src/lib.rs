@@ -109,7 +109,9 @@ impl Default for CbrConfig {
     /// Conservative default: the target must share a majority (Jaccard > 0.5) of features with the
     /// retrieved case's problem.
     fn default() -> Self {
-        Self { min_similarity: 0.5 }
+        Self {
+            min_similarity: 0.5,
+        }
     }
 }
 
@@ -416,6 +418,47 @@ mod tests {
         assert_eq!(a.provenance, vec!["case-based:migraine-case".to_string()]);
     }
 
+    #[test]
+    fn selects_highest_similarity_among_multiple_qualifiers() {
+        // Two cases that BOTH clear the 0.5 gate (so this exercises the max-selection branch, not
+        // the threshold filter): for target {a,b,c,d} —
+        //   near: problem {a,b,c,d} → Jaccard 4/4 = 1.00
+        //   mid:  problem {a,b,c}   → Jaccard 3/4 = 0.75
+        // Both solutions cover the goal, so both qualify; the higher-similarity case must win.
+        let lib = vec![
+            Case::new(
+                "near",
+                vec![("f", "a"), ("f", "b"), ("f", "c"), ("f", "d")],
+                vec![("do", "x")],
+            ),
+            Case::new(
+                "mid",
+                vec![("f", "a"), ("f", "b"), ("f", "c")],
+                vec![("do", "x")],
+            ),
+        ];
+        let r = CaseBasedReasoner::new(lib, CbrConfig::default());
+        let a = r.answer(&q(
+            t("subj", "do", "x"),
+            vec![
+                t("subj", "f", "a"),
+                t("subj", "f", "b"),
+                t("subj", "f", "c"),
+                t("subj", "f", "d"),
+            ],
+        ));
+        assert_eq!(a.provability(), Provability::Heuristic);
+        assert_eq!(a.provenance, vec!["case-based:near".to_string()]);
+        if let ProofTrace::Evidence { confidence, .. } = a.proof {
+            assert!(
+                (confidence - 1.0).abs() < 1e-9,
+                "the 1.00 case wins over the 0.75 qualifier on the max-selection branch"
+            );
+        } else {
+            panic!("expected Evidence");
+        }
+    }
+
     // ── Genericity: the same engine over an incident-pattern playbook ────────
 
     #[test]
@@ -451,7 +494,9 @@ mod tests {
     #[test]
     fn respects_min_similarity_threshold() {
         // Strict config: require near-exact match. A 2/3 partial match is then rejected.
-        let cfg = CbrConfig { min_similarity: 0.9 };
+        let cfg = CbrConfig {
+            min_similarity: 0.9,
+        };
         let r = CaseBasedReasoner::new(clinical_library(), cfg);
         let a = r.answer(&q(
             t("patient_c", "order", "flu_test"),
@@ -483,7 +528,9 @@ mod tests {
     #[test]
     fn jaccard_basic_properties() {
         let s = |fs: &[(&str, &str)]| -> BTreeSet<Feature> {
-            fs.iter().map(|(p, o)| (p.to_string(), o.to_string())).collect()
+            fs.iter()
+                .map(|(p, o)| (p.to_string(), o.to_string()))
+                .collect()
         };
         let a = s(&[("x", "1"), ("y", "2")]);
         let b = s(&[("x", "1"), ("y", "2")]);
