@@ -1,7 +1,7 @@
 //! # nusy-bayesian-battery — VY-Bayes acceptance battery (EX-4819, VY-Bayes E4)
 //!
 //! The measured acceptance for the Bayesian stack (E1 engine, E2 Reasoner conformance, E3
-//! abduction-rank upgrade). Four checks, all against **hand-computed** golds (engine-generated
+//! abduction-rank upgrade). Five checks, all against **hand-computed** golds (engine-generated
 //! golds would be circular — the EX-4819 constraint):
 //!
 //! 1. **GRADE-aggregation fidelity** — worked GRADE examples (base + components → overall level)
@@ -9,15 +9,20 @@
 //! 2. **Bayesian posterior fidelity** — textbook posteriors (e.g. the base-rate fallacy:
 //!    1% prevalence + a 99%/5% test → P(disease|+) = 1/6) computed by hand; the
 //!    [`BayesianUpdate`] engine must match within tolerance.
-//! 3. **Abduction top-1 accuracy (Bayesian vs parsimony)** — diagnostic scenarios with a known
-//!    gold explanation, ranked by both the parsimony [`Ranker`] and the [`BayesianRanker`];
-//!    we record each ranker's top-1 accuracy and the delta (the E3 upgrade must not regress).
-//! 4. **Proof-purity** — *zero probabilistic links in proven traces*: every Bayesian/abductive
+//! 3. **Abduction non-regression** — easy single-winner scenarios where both the parsimony
+//!    [`Ranker`] and the [`BayesianRanker`] must hit the gold (the E3 upgrade must not regress).
+//! 4. **Abduction improvement (CH-4831)** — *discriminating* scenarios engineered so the rankers
+//!    diverge: a high-confidence multi-atom explanation that parsimony's atom-count misses but the
+//!    Bayesian posterior (`mean_prior × 2^(−assumed_count)`) selects. Bayesian must HIT, parsimony
+//!    must MISS — the empirical content of H-4823's "improves over parsimony" clause (delta > 0).
+//! 5. **Proof-purity** — *zero probabilistic links in proven traces*: every Bayesian/abductive
 //!    answer is `Heuristic` (or `Abstained`), **never `Proven`**. A probability is never
 //!    laundered into a proof — the load-bearing invariant of the whole reasoner contract.
 //!
 //! Fully symbolic / deterministic — a CI-permanent `cargo test`; the [`run`] report feeds the
 //! Bayesian EXPR + eval JSON. **Fully symbolic; no LLM/GPU.**
+
+use std::collections::HashMap;
 
 use nusy_abduction::GraphCandidates;
 use nusy_abduction_rank::{Abducer, BayesianRanker, Rank, Ranker};
@@ -213,6 +218,107 @@ fn top1_hit<R: Rank>(case: &AbductionCase, ranker: R) -> bool {
         == Some(&case.gold_principal)
 }
 
+// ── 4. Discriminating case: Bayesian BEATS parsimony (CH-4831) ───────────────────────────────
+
+/// The prior-map key the rankers use — mirrors `nusy_abduction_rank`'s (private) `triple_key`,
+/// the documented seam for the caller's prior table (`"{s}|{p}|{o}"`). (A `pub triple_key` or a
+/// `PriorTable` builder upstream would remove this duplication — noted as a small follow-up.)
+fn prior_key(t: &Triple) -> String {
+    format!("{}|{}|{}", t.subject, t.predicate, t.object)
+}
+
+fn priors_map(prs: &[(Triple, f64)]) -> HashMap<String, f64> {
+    prs.iter().map(|(t, p)| (prior_key(t), *p)).collect()
+}
+
+/// A case engineered so parsimony and Bayesian **diverge**, so the battery can demonstrate
+/// H-4823's *improves* clause — not merely non-regression. Parsimony is lexicographic (atom
+/// count strictly dominates), so it always takes the fewest-atom explanation. The Bayesian
+/// ranker scores `mean_prior × 2^(−assumed_count)`, so a high-confidence multi-atom explanation
+/// can overcome one extra atom. When the high-confidence explanation is the gold, Bayesian hits
+/// and parsimony misses.
+pub struct DiscriminatingCase {
+    pub id: &'static str,
+    pub observation: Triple,
+    pub rules: Vec<IdRule>,
+    /// Per-atom prior confidence (read product-side off the store's confidence column).
+    pub priors: Vec<(Triple, f64)>,
+    pub default_prior: f64,
+    /// The atom parsimony (wrongly) selects — the fewest-atom explanation's principal.
+    pub parsimony_pick: Triple,
+    /// The gold explanation's atoms; the Bayesian principal must be one of these (robust to the
+    /// candidate generator's within-body atom ordering).
+    pub bayesian_gold: Vec<Triple>,
+}
+
+pub fn discriminating_cases() -> Vec<DiscriminatingCase> {
+    vec![
+        // Jaundice: hemolysis is a 1-atom explanation but unlikely in this patient (prior 0.05);
+        // obstruction is a 2-atom explanation (gallstone + blocked duct) both highly likely (0.95).
+        // Parsimony picks the single atom (hemolysis); Bayesian's posterior (0.95·¼=0.2375 vs
+        // 0.05·½=0.025) picks the obstruction — the gold.
+        DiscriminatingCase {
+            id: "jaundice-obstruction-beats-hemolysis",
+            observation: Triple::new("patient", "shows", "jaundice"),
+            rules: vec![
+                idrule(
+                    "jaundice-if-hemolysis",
+                    vec![TriplePattern::parse("?p", "has", "hemolysis")],
+                    vec![TriplePattern::parse("?p", "shows", "jaundice")],
+                ),
+                idrule(
+                    "jaundice-if-obstruction",
+                    vec![
+                        TriplePattern::parse("?p", "has", "gallstone"),
+                        TriplePattern::parse("?p", "has", "bile_duct_blocked"),
+                    ],
+                    vec![TriplePattern::parse("?p", "shows", "jaundice")],
+                ),
+            ],
+            priors: vec![
+                (Triple::new("patient", "has", "hemolysis"), 0.05),
+                (Triple::new("patient", "has", "gallstone"), 0.95),
+                (Triple::new("patient", "has", "bile_duct_blocked"), 0.95),
+            ],
+            default_prior: 0.5,
+            parsimony_pick: Triple::new("patient", "has", "hemolysis"),
+            bayesian_gold: vec![
+                Triple::new("patient", "has", "gallstone"),
+                Triple::new("patient", "has", "bile_duct_blocked"),
+            ],
+        },
+    ]
+}
+
+/// The principal atom the Abducer returns under `ranker` for `observation`, with the given
+/// priors wired into the ranker (the product-side confidence signal).
+fn principal_with<R: Rank>(case: &DiscriminatingCase, ranker: R) -> Option<Triple> {
+    Abducer::new(
+        GraphCandidates::new(case.rules.clone(), 2),
+        TestStage::new(case.rules.clone(), vec![]),
+        ranker,
+        env(),
+    )
+    .answer(&Query::new(case.observation.clone()))
+    .value
+}
+
+/// (parsimony hit gold?, bayesian hit gold?) for a discriminating case. The discriminating
+/// property is: parsimony MISSES (picks its low-prior single atom) and Bayesian HITS (picks an
+/// atom of the high-confidence gold explanation).
+fn discriminating_outcome(case: &DiscriminatingCase) -> (bool, bool) {
+    let priors = priors_map(&case.priors);
+    let parsimony = principal_with(case, Ranker::new(&[], priors.clone(), case.default_prior));
+    let bayesian = principal_with(case, BayesianRanker::new(&[], priors, case.default_prior));
+    let parsimony_hit = parsimony
+        .as_ref()
+        .is_some_and(|t| case.bayesian_gold.contains(t));
+    let bayesian_hit = bayesian
+        .as_ref()
+        .is_some_and(|t| case.bayesian_gold.contains(t));
+    (parsimony_hit, bayesian_hit)
+}
+
 // ── The report ───────────────────────────────────────────────────────────────────────────────
 
 /// The acceptance result: fidelity counts + abduction accuracy + the proof-purity invariant.
@@ -222,9 +328,15 @@ pub struct Report {
     pub grade_matched: usize,
     pub posterior_total: usize,
     pub posterior_matched: usize,
+    // Non-regression (easy single-winner cases): BOTH rankers must hit gold.
     pub abduction_total: usize,
     pub parsimony_top1: usize,
     pub bayesian_top1: usize,
+    // Discriminating cases (CH-4831): Bayesian must hit gold, parsimony must MISS — this is the
+    // empirical content of H-4823's "improves over parsimony" clause (delta > 0).
+    pub discrim_total: usize,
+    pub discrim_bayesian_hits: usize,
+    pub discrim_parsimony_hits: usize,
     /// Number of answers that are simultaneously `Proven` AND probabilistic — must be 0.
     pub probabilistic_proven_links: usize,
 }
@@ -233,9 +345,20 @@ impl Report {
     pub fn all_pass(&self) -> bool {
         self.grade_matched == self.grade_total
             && self.posterior_matched == self.posterior_total
+            // Non-regression: both rankers hit the easy cases.
             && self.bayesian_top1 == self.abduction_total
             && self.parsimony_top1 == self.abduction_total
+            // Improvement: Bayesian hits every discriminating gold, parsimony misses every one.
+            && self.discrim_total > 0
+            && self.discrim_bayesian_hits == self.discrim_total
+            && self.discrim_parsimony_hits == 0
             && self.probabilistic_proven_links == 0
+    }
+
+    /// The improvement delta this battery demonstrates: Bayesian top-1 hits minus parsimony's,
+    /// over the discriminating cases. > 0 means the E3 Bayesian upgrade strictly improves ranking.
+    pub fn discrim_delta(&self) -> i64 {
+        self.discrim_bayesian_hits as i64 - self.discrim_parsimony_hits as i64
     }
 }
 
@@ -286,6 +409,15 @@ pub fn run() -> Report {
         })
         .count();
 
+    // Discriminating cases (CH-4831): Bayesian should hit, parsimony should miss.
+    let discrim = discriminating_cases();
+    let (mut discrim_parsimony_hits, mut discrim_bayesian_hits) = (0usize, 0usize);
+    for c in &discrim {
+        let (p_hit, b_hit) = discriminating_outcome(c);
+        discrim_parsimony_hits += p_hit as usize;
+        discrim_bayesian_hits += b_hit as usize;
+    }
+
     Report {
         grade_total: grade_cases.len(),
         grade_matched,
@@ -294,6 +426,9 @@ pub fn run() -> Report {
         abduction_total: abduction_cases.len(),
         parsimony_top1,
         bayesian_top1,
+        discrim_total: discrim.len(),
+        discrim_bayesian_hits,
+        discrim_parsimony_hits,
         probabilistic_proven_links,
     }
 }
@@ -367,9 +502,57 @@ mod tests {
     }
 
     #[test]
+    fn bayesian_beats_parsimony_on_discriminating_case() {
+        // H-4823 "improves" clause: on an engineered divergence the Bayesian posterior picks the
+        // high-confidence gold explanation that parsimony's atom-count misses.
+        for c in discriminating_cases() {
+            let (p_hit, b_hit) = discriminating_outcome(&c);
+            assert!(
+                !p_hit,
+                "parsimony should MISS the discriminating gold on {}",
+                c.id
+            );
+            assert!(
+                b_hit,
+                "bayesian should HIT the discriminating gold on {}",
+                c.id
+            );
+        }
+    }
+
+    #[test]
+    fn discriminating_winner_is_still_heuristic() {
+        // Even when the Bayesian posterior wins a divergence, the answer is never Proven.
+        for c in discriminating_cases() {
+            let priors = priors_map(&c.priors);
+            let abducer = Abducer::new(
+                GraphCandidates::new(c.rules.clone(), 2),
+                TestStage::new(c.rules.clone(), vec![]),
+                BayesianRanker::new(&[], priors, c.default_prior),
+                env(),
+            );
+            assert_eq!(
+                abducer
+                    .answer(&Query::new(c.observation.clone()))
+                    .provability(),
+                Provability::Heuristic,
+                "case {} must stay Heuristic",
+                c.id
+            );
+        }
+    }
+
+    #[test]
     fn report_all_pass() {
         let r = run();
         assert!(r.all_pass(), "battery report did not all-pass: {r:?}");
         assert_eq!(r.probabilistic_proven_links, 0);
+        // The improvement is real, not just non-regression: Bayesian strictly out-hits parsimony
+        // on the discriminating cases.
+        assert!(
+            r.discrim_delta() > 0,
+            "expected a positive Bayesian-vs-parsimony delta, got {}",
+            r.discrim_delta()
+        );
     }
 }
