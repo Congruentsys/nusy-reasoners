@@ -1,0 +1,12 @@
+[package]
+name = "nusy-analogical"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Analogical reasoner (VY-B E2, EX-4888): structure-mapping between a source case and a target — align entities by relational consistency, then transfer an unobserved relation by analogy, behind the Reasoner contract. Transferred relations are HEURISTIC — an analogy is suggestive, never a proof (the engine emits Evidence, so provability is always Heuristic, never Proven)."
+
+[dependencies]
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-unify    = { path = "../nusy-unify" }
