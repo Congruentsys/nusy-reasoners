@@ -369,7 +369,8 @@ impl Reasoner for AnalogicalReasoner {
     fn answer(&self, query: &Query) -> Answer {
         let mut best: Option<(f64, &Case, Alignment)> = None;
         for case in &self.cases {
-            if let Some((sim, alignment)) = self.case_supports_goal(case, &query.goal, &query.context)
+            if let Some((sim, alignment)) =
+                self.case_supports_goal(case, &query.goal, &query.context)
             {
                 let better = match &best {
                     None => true,
@@ -494,8 +495,13 @@ mod tests {
             t("contract_b", "has_clause", "arbitration"),
             t("court", "ruled", "contract_b"),
         ];
-        let al = best_alignment(&precedent(), &context, &target_entities, &AnalogyConfig::default())
-            .expect("alignment exists");
+        let al = best_alignment(
+            &precedent(),
+            &context,
+            &target_entities,
+            &AnalogyConfig::default(),
+        )
+        .expect("alignment exists");
         assert_eq!(al.map.get("contract_a"), Some(&"contract_b".to_string()));
         assert_eq!(al.map.get("court"), Some(&"court".to_string()));
         assert_eq!(al.supported, 2);
@@ -589,10 +595,12 @@ mod tests {
 
     #[test]
     fn most_similar_case_wins() {
-        // Two precedents that BOTH qualify (≥2 known relations align), but differ in similarity:
+        // Two precedents that BOTH clear the similarity gate (≥2 aligned AND sim ≥ 0.5) — so the
+        // winner is decided by the max-selection branch in answer(), NOT filtered at the gate:
         //  - strong: 3 facts, 2 known align (has_clause, approved) → similarity 2/3 ≈ 0.667
-        //  - weak:   5 facts, 2 known align (has_clause, approved) → similarity 2/5 = 0.400
-        // The more structurally-similar case must fire.
+        //  - weak:   4 facts, 2 known align (has_clause, approved) → similarity 2/4 = 0.500
+        //            (clears the gate via EPSILON, so it genuinely reaches selection and then loses)
+        // The more structurally-similar case (strong) must win the max-selection.
         let strong = Case::new(
             "strong",
             vec![
@@ -608,7 +616,6 @@ mod tests {
                 t("regulator", "approved", "d_a"),
                 t("d_a", "is", "valid"),
                 t("d_a", "filed_in", "2019"),
-                t("d_a", "drafted_by", "lawyer"),
             ],
         );
         let r = AnalogicalReasoner::new(vec![weak, strong], AnalogyConfig::default());
@@ -624,7 +631,7 @@ mod tests {
         if let ProofTrace::Evidence { confidence, .. } = a.proof {
             assert!(
                 (confidence - 2.0 / 3.0).abs() < 1e-9,
-                "the more-similar case (2/3) fires, not the diluted one (2/5)"
+                "the more-similar case (2/3) wins selection over the weaker qualifier (2/4)"
             );
         } else {
             panic!("expected Evidence");
