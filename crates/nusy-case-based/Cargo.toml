@@ -1,0 +1,12 @@
+[package]
+name = "nusy-case-based"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Case-based reasoner (VY-B E3, EX-4889): retrieve the nearest prior case by feature similarity, then adapt its recorded solution onto the target, behind the Reasoner contract. A retrieved precedent is HEURISTIC — a prior case resembling yours is not a proof (the engine emits Evidence, so provability is always Heuristic, never Proven)."
+
+[dependencies]
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-unify    = { path = "../nusy-unify" }
