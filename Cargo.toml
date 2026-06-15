@@ -26,10 +26,22 @@ members = [
     "crates/nusy-cpg",
     "crates/nusy-clinical-fixtures",
     "crates/repo-invariants",
+    # Wave-2 (CH-4804): the higher-level arrow-free reasoners (VY-E/VY-F)
+    "crates/nusy-deontic",
+    "crates/nusy-abduction",
+    "crates/nusy-abduction-test",
+    "crates/nusy-abduction-rank",
+    "crates/nusy-abduction-battery",
+    "crates/nusy-bayesian",
+    "crates/nusy-bayesian-battery",
+    "crates/nusy-inductive",
+    "crates/nusy-analogical",
+    "crates/nusy-case-based",
+    "crates/nusy-reasoner-conformance",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Congruentsys/nusy-reasoners"
