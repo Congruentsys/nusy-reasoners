@@ -1,0 +1,12 @@
+[package]
+name = "nusy-inductive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Inductive reasoner (VY-B E1, EX-4887): generalize candidate rules from instance sets, scored by support/confidence, behind the Reasoner contract. Induced rules are HEURISTIC — a generalization is never a proof (the engine emits Evidence, so provability is always Heuristic, never Proven)."
+
+[dependencies]
+nusy-reasoner = { path = "../nusy-reasoner" }
+nusy-unify    = { path = "../nusy-unify" }
